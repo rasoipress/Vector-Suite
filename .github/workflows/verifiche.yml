@@ -1,0 +1,89 @@
+name: Verifiche
+
+# Gira a ogni push e a ogni pull request. Non serve l'SDK di Adobe: sono i
+# controlli sui sorgenti, sugli asset generati e sull'interfaccia dell'app.
+# Su Linux, che costa un decimo dei minuti macOS.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  sorgenti:
+    name: Catalogo, asset e interfaccia
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Strumenti
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+
+      - name: Coerenza del catalogo
+        run: python3 scripts/verify-catalog.py
+
+      - name: Asset allineati alla sorgente grafica
+        run: python3 scripts/generate-assets.py --check
+
+      - name: Marcatura SVG
+        run: |
+          xmllint --noout Resources/VectorSuiteLogo.svg
+          xmllint --noout Resources/icon/VectorSuiteMark.svg
+          for icon in native/VectorSuiteNative/Resources/raw/VSIcon-*.svg; do
+            xmllint --noout "$icon"
+          done
+
+      - name: Sintassi JavaScript
+        run: |
+          node --check Resources/ui/app.js
+          node --check Resources/ui/icons.js
+
+      - name: Interfaccia dell'app
+        run: node tests/ui-smoke.js
+
+      - name: Sintassi degli script di shell
+        run: |
+          for script in scripts/*.sh; do sh -n "$script"; done
+
+      - name: Sintassi degli script Python
+        run: |
+          python3 -m py_compile scripts/*.py
+
+      - name: Sintassi degli script PowerShell
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "Errori di sintassi in $($_.Name)"
+            }
+            Write-Host "ok: $($_.Name)"
+          }
+
+      - name: Nessun percorso personale nei sorgenti
+        run: |
+          if grep -R -Eiq '/Users/[a-z]|[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]{2,}' \
+            native/VectorSuiteNative/Source native/VectorSuiteNative/Config \
+            Resources/ui Sources; then
+            echo "Trovato un percorso personale o un indirizzo e-mail."
+            exit 1
+          fi
+
+      - name: L'SDK non deve finire nel repository
+        run: |
+          if [ -d "sdk/Adobe Illustrator 2026 SDK" ]; then
+            echo "L'SDK di Adobe è stato versionato: va rimosso dal repository."
+            echo "La licenza Adobe non ne permette la ridistribuzione."
+            exit 1
+          fi
+          test -f sdk/README.md

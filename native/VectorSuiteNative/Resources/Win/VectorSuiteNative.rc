@@ -1,0 +1,25 @@
+//========================================================================================
+//
+//  Risorse del plug-in Vector Suite per Windows.
+//
+//  Tre gruppi, in quest'ordine:
+//    - il PiPL, il blocco che Illustrator legge per riconoscere il plug-in e
+//      trovarne il punto d'ingresso: senza, il bundle non viene caricato;
+//    - le informazioni di versione, dal file comune dell'SDK;
+//    - icone e mappa delle risorse, generate da scripts/generate-assets.py.
+//
+//========================================================================================
+
+#include <winnt.h>
+#include <winuser.h>
+
+#define kMySDKPluginName "VectorSuiteNative"
+#define PIPL_PLUGIN_NAME kMySDKPluginName
+
+#include "VersionInfo.rc"
+
+// Il file plugin.pipl è prodotto da tools/pipl/create_pipl.py, che il build
+// lancia prima del compilatore di risorse.
+plugin pipl "plugin.pipl"
+
+#include "icons.rc"

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vector Suite</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="titlebar-drag" aria-hidden="true"></div>
+        <div class="brand">
+          <span class="brand-mark" id="brandMark" aria-hidden="true"></span>
+          <span class="brand-text">
+            <strong>Vector Suite</strong>
+            <small>Adobe Illustrator 2026</small>
+          </span>
+        </div>
+
+        <p class="eyebrow section-label">Libreria</p>
+        <nav id="categories" aria-label="Categorie"></nav>
+
+        <div class="sidebar-footer">
+          <p class="eyebrow">Plug-in</p>
+          <div class="status-line">
+            <i id="globalDot" aria-hidden="true"></i>
+            <span id="detectedLabel">Scansione…</span>
+          </div>
+          <p class="path" id="sourcePath" title="">—</p>
+          <div class="link-row">
+            <button class="link" data-native="openFolder">Apri cartella</button>
+            <button class="link" data-native="chooseFolder">Cambia…</button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="library">
+        <header class="library-header">
+          <div class="header-title">
+            <p class="eyebrow" id="pageEyebrow">Suite completa</p>
+            <h1 id="pageTitle">Tutti</h1>
+            <p class="header-meta" id="pageSubtitle">22 moduli</p>
+          </div>
+          <div class="header-actions">
+            <label class="field">
+              <span class="field-icon" id="searchIcon" aria-hidden="true"></span>
+              <input id="searchInput" type="search" placeholder="Cerca un modulo"
+                     aria-label="Cerca un modulo">
+            </label>
+            <button class="icon-button" id="rescanButton" data-native="rescan"
+                    title="Rileva nuovamente" aria-label="Rileva nuovamente"></button>
+          </div>
+        </header>
+
+        <section class="module-grid" id="moduleGrid"></section>
+
+        <div class="empty" id="emptyState" hidden>
+          <span class="empty-mark" id="emptyMark" aria-hidden="true"></span>
+          <strong>Nessun modulo</strong>
+          <p>Nessun risultato per questa ricerca o categoria.</p>
+        </div>
+      </main>
+
+      <aside class="detail" id="detailPanel"></aside>
+    </div>
+
+    <script src="./icons.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,141 @@
+name: Rilascio
+
+# Su un tag `v*` compila il plug-in per macOS e per Windows, produce il DMG e
+# allega tutto alla release.
+#
+# L'SDK di Adobe non è nel repository perché la licenza non ne permette la
+# ridistribuzione. I lavori di compilazione lo scaricano dal segreto
+# AI_SDK_URL: un archivio .zip su uno storage tuo, o l'asset di una release
+# privata. Se il segreto non c'è, i due lavori si fermano subito con un
+# messaggio invece di fallire a metà compilazione.
+#
+# L'archivio deve contenere la cartella `Adobe Illustrator 2026 SDK` alla
+# radice, così da scompattarsi direttamente dentro sdk/.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  macos:
+    name: macOS — plug-in, app, DMG
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Controllo del segreto con l'SDK
+        env:
+          AI_SDK_URL: ${{ secrets.AI_SDK_URL }}
+        run: |
+          if [ -z "$AI_SDK_URL" ]; then
+            echo "::error::Manca il segreto AI_SDK_URL."
+            echo "L'SDK di Adobe non può stare nel repository: la licenza non"
+            echo "ne permette la ridistribuzione. Carica l'archivio su uno"
+            echo "storage tuo e metti l'indirizzo nel segreto AI_SDK_URL."
+            echo "Istruzioni: sdk/README.md"
+            exit 1
+          fi
+
+      - name: Scarico l'SDK
+        env:
+          AI_SDK_URL: ${{ secrets.AI_SDK_URL }}
+        run: |
+          curl -fsSL "$AI_SDK_URL" -o /tmp/ai-sdk.zip
+          unzip -q /tmp/ai-sdk.zip -d sdk/
+          test -d "sdk/Adobe Illustrator 2026 SDK/illustratorapi"
+
+      - name: Rasterizzatore SVG
+        # QuickLook non produce anteprime su una macchina senza sessione
+        # grafica: il build usa rsvg-convert quando c'è.
+        run: brew install librsvg
+
+      - name: Compilo plug-in, app e DMG
+        run: ./scripts/build-macos.sh
+
+      - name: Verifiche
+        run: ./scripts/verify.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vector-suite-macos
+          path: |
+            build/Vector Suite.dmg
+            build/native/release/VectorSuiteNative.aip
+          retention-days: 30
+
+  windows:
+    name: Windows — plug-in
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Controllo del segreto con l'SDK
+        shell: pwsh
+        env:
+          AI_SDK_URL: ${{ secrets.AI_SDK_URL }}
+        run: |
+          if (-not $env:AI_SDK_URL) {
+            Write-Host "::error::Manca il segreto AI_SDK_URL."
+            Write-Host "L'SDK di Adobe non può stare nel repository: la licenza"
+            Write-Host "non ne permette la ridistribuzione. Istruzioni in sdk/README.md"
+            exit 1
+          }
+
+      - name: Scarico l'SDK
+        shell: pwsh
+        env:
+          AI_SDK_URL: ${{ secrets.AI_SDK_URL }}
+        run: |
+          Invoke-WebRequest -Uri $env:AI_SDK_URL -OutFile "$env:TEMP\ai-sdk.zip"
+          Expand-Archive -Path "$env:TEMP\ai-sdk.zip" -DestinationPath sdk -Force
+          if (-not (Test-Path "sdk\Adobe Illustrator 2026 SDK\illustratorapi")) {
+            throw "L'archivio non contiene 'Adobe Illustrator 2026 SDK' alla radice."
+          }
+
+      - name: Compilo il plug-in
+        shell: pwsh
+        run: .\scripts\build-windows.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vector-suite-windows
+          path: build/win/Release/VectorSuiteNative.aip
+          retention-days: 30
+
+  release:
+    name: Pubblico la release
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artefatti
+
+      - name: Allego i pacchetti al tag
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artefatti/vector-suite-macos/*
+            artefatti/vector-suite-windows/*
+          body: |
+            Vector Suite ${{ github.ref_name }}
+
+            - **macOS**: `Vector Suite.dmg` contiene il gestore e il plug-in.
+              Firma ad hoc: al primo avvio aprire l'app con tasto destro > Apri.
+            - **Windows**: `VectorSuiteNative.aip` va copiato nella cartella
+              Plug-ins di Illustrator. Vedi `scripts/install-windows.ps1`.

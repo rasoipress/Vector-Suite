@@ -1,0 +1,26 @@
+// Generato da scripts/generate-assets.py.
+24000.svg		VSIcon_precision_pen.svg
+24001.svg		VSIcon_fluid_sketch.svg
+24002.svg		VSIcon_ink_studio.svg
+24003.svg		VSIcon_width_studio.svg
+24004.svg		VSIcon_path_studio.svg
+24005.svg		VSIcon_geometry_lab.svg
+24006.svg		VSIcon_collision_align.svg
+24007.svg		VSIcon_mirror_studio.svg
+24008.svg		VSIcon_shape_reform.svg
+24009.svg		VSIcon_live_style.svg
+24010.svg		VSIcon_color_lab.svg
+24011.svg		VSIcon_texture_lab.svg
+24012.svg		VSIcon_stipple_lab.svg
+24013.svg		VSIcon_randomize.svg
+24014.svg		VSIcon_smart_find.svg
+24015.svg		VSIcon_vector_repair.svg
+24016.svg		VSIcon_raster_lab.svg
+24017.svg		VSIcon_auto_save.svg
+24018.svg		VSIcon_direct_settings.svg
+24019.svg		VSIcon_suite_core.svg
+24020.svg		VSIcon_projection_studio.svg
+24021.svg		VSIcon_projection_rectangle.svg
+24022.svg		VSIcon_projection_ellipse.svg
+24023.svg		VSIcon_projection_box.svg
+24024.svg		VSIcon_fractal_grove.svg

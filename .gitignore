@@ -1,0 +1,10 @@
+.DS_Store
+*.log
+dist/
+build/
+
+# L'SDK di Adobe Illustrator non si può ridistribuire: è coperto dalla licenza
+# che accompagna il download. Va scaricato da Adobe e messo qui a mano.
+# Le istruzioni sono in sdk/README.md, che invece viene versionato.
+sdk/*
+!sdk/README.md
