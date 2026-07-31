@@ -29,6 +29,7 @@ MISSING
   exit 1
 fi
 
+python3 "$SCRIPT_DIR/apply-version.py"
 python3 "$SCRIPT_DIR/generate-assets.py"
 
 xcodebuild \

@@ -29,6 +29,13 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Il tag deve coincidere con il file VERSION
+        # Senza questo controllo si può pubblicare una release che dichiara una
+        # versione e installa un bundle che ne dichiara un'altra. Meglio
+        # fermarsi qui che scoprirlo da un utente.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python3 scripts/apply-version.py --expect "${{ github.ref_name }}"
+
       - name: Controllo del segreto con l'SDK
         env:
           AI_SDK_URL: ${{ secrets.AI_SDK_URL }}
@@ -79,6 +86,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Il tag deve coincidere con il file VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python3 scripts/apply-version.py --expect "${{ github.ref_name }}"
 
       - name: Controllo del segreto con l'SDK
         shell: pwsh
@@ -134,6 +145,9 @@ jobs:
             artefatti/vector-suite-windows/*
           body: |
             Vector Suite ${{ github.ref_name }}
+
+            Versione dichiarata dal pacchetto e dal tag: la stessa. Il
+            workflow si ferma se i due valori divergono.
 
             - **macOS**: `Vector Suite.dmg` contiene il gestore e il plug-in.
               Firma ad hoc: al primo avvio aprire l'app con tasto destro > Apri.

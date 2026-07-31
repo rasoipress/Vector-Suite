@@ -7,6 +7,7 @@ PLUGIN_ROOT="$PROJECT_ROOT/native/VectorSuiteNative"
 BUNDLE="$PROJECT_ROOT/build/native/release/VectorSuiteNative.aip"
 
 plutil -lint "$PLUGIN_ROOT/Config/Info.plist"
+python3 "$SCRIPT_DIR/apply-version.py" --check
 python3 "$SCRIPT_DIR/generate-assets.py" --check
 python3 "$SCRIPT_DIR/verify-catalog.py"
 ICON_COUNT=$(find "$PLUGIN_ROOT/Resources/raw" -maxdepth 1 -type f -name 'VSIcon-*.svg' | wc -l | tr -d ' ')

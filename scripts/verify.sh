@@ -38,6 +38,9 @@ xmllint --noout "$PROJECT_DIR/Resources/icon/VectorSuiteMark.svg"
 test -f "$PROJECT_DIR/Resources/icon/VectorSuiteMark.png"
 echo "  ok"
 
+echo "== Versione"
+python3 "$SCRIPT_DIR/apply-version.py" --check
+
 echo "== Asset generati"
 python3 "$SCRIPT_DIR/generate-assets.py" --check
 

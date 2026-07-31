@@ -19,8 +19,9 @@ DMG_PATH="$BUILD_DIR/Vector Suite.dmg"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 mkdir -p "$MODULE_CACHE"
 
-# Marchio e icone sono generati da una sola sorgente geometrica: rigenerarli
-# a ogni build impedisce che il bundle e i sorgenti si allontanino.
+# Versione, marchio e icone hanno tutti una sola sorgente. Riapplicarli a ogni
+# build impedisce che il bundle e i sorgenti si allontanino fra loro.
+python3 "$SCRIPT_DIR/apply-version.py"
 python3 "$SCRIPT_DIR/generate-assets.py"
 
 "$SCRIPT_DIR/build-native.sh"

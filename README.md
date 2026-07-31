@@ -226,13 +226,45 @@ differenza dichiarata: non si riordinano le schede con Control + trascina.
 
 ---
 
+## Versione
+
+Il numero di versione ha una sorgente sola: il file **`VERSION`** alla radice.
+
+```sh
+./scripts/apply-version.py            # lo riporta nei due Info.plist
+./scripts/apply-version.py --check    # verifica che siano allineati
+./scripts/apply-version.py --print    # stampa la versione
+```
+
+Gli script di build lo applicano da soli prima di compilare, quindi in
+condizioni normali non serve lanciarlo a mano. Il numero di build
+(`CFBundleVersion`) è ricavato dalla versione con `maggiore·10000 +
+minore·100 + patch`: cresce sempre e non può divergere da quello visibile.
+
+Per pubblicare una versione nuova:
+
+```sh
+echo "0.7.0" > VERSION
+./scripts/apply-version.py
+git commit -am "Versione 0.7.0"
+git tag v0.7.0
+git push --follow-tags
+```
+
+Il tag e il file `VERSION` devono coincidere: il workflow di rilascio si ferma
+se non è così, prima di compilare qualsiasi cosa. Serve a non pubblicare una
+release che dichiara una versione e installa un bundle che ne dichiara
+un'altra.
+
+---
+
 ## Compilazione automatica su GitHub
 
 Due workflow in `.github/workflows`:
 
 | File | Quando | Cosa fa |
 |---|---|---|
-| `verifiche.yml` | a ogni push e pull request | catalogo, asset, SVG, JavaScript, interfaccia, sintassi degli script. Gira su Linux, non serve l'SDK |
+| `verifiche.yml` | a ogni push e pull request | versione, catalogo, asset, SVG, JavaScript, interfaccia, sintassi degli script. Gira su Linux, non serve l'SDK |
 | `rilascio.yml` | su un tag `v*` | compila per macOS e Windows, produce il DMG e allega tutto alla release |
 
 Il rilascio ha bisogno del segreto **`AI_SDK_URL`**: l'indirizzo di un archivio
@@ -278,6 +310,7 @@ node tests/ui-smoke.js              # prova a freddo dell'interfaccia dell'app
 `verify.sh` controlla in sequenza:
 
 - struttura, firma e contenuto dell'app e del pacchetto DMG;
+- versione allineata fra `VERSION` e i due `Info.plist`;
 - presenza e integrità del bundle nativo incorporato;
 - validità XML del marchio e delle 25 icone;
 - allineamento fra la sorgente grafica e i file generati;
@@ -297,6 +330,7 @@ diverso da zero se trova qualcosa.
 ## Struttura della cartella
 
 ```text
+VERSION           il numero di versione, sorgente unica
 Resources/        interfaccia e risorse dell'app di gestione
 Resources/icon/   livello del marchio per Icon Composer
 Sources/          sorgente dell'app di gestione, solo macOS

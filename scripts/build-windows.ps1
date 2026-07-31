@@ -36,6 +36,9 @@ Manca l'Adobe Illustrator SDK.
 "@
 }
 
+Write-Host '== Applico la versione dal file VERSION'
+python (Join-Path $projectRoot 'scripts\apply-version.py')
+
 Write-Host '== Rigenero icone e mappa delle risorse'
 python (Join-Path $projectRoot 'scripts\generate-assets.py')
 
