@@ -14,7 +14,7 @@ name: Rilascio
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', '[0-9]*']
   workflow_dispatch:
 
 jobs:
@@ -33,7 +33,7 @@ jobs:
         # Senza questo controllo si può pubblicare una release che dichiara una
         # versione e installa un bundle che ne dichiara un'altra. Meglio
         # fermarsi qui che scoprirlo da un utente.
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/')
         run: python3 scripts/apply-version.py --expect "${{ github.ref_name }}"
 
       - name: Controllo del segreto con l'SDK
@@ -87,7 +87,7 @@ jobs:
           python-version: '3.12'
 
       - name: Il tag deve coincidere con il file VERSION
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/')
         run: python3 scripts/apply-version.py --expect "${{ github.ref_name }}"
 
       - name: Controllo del segreto con l'SDK
@@ -128,7 +128,7 @@ jobs:
     name: Preparo la bozza di release
     needs: [macos, windows]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
 
