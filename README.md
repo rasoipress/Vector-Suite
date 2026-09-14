@@ -21,14 +21,6 @@ Riavvia Illustrator e apri **Finestra → Vector Suite**.
 La build locale contiene app e plug-in per Apple Silicon e Intel.
 Non è notarizzata. L'app di gestione può essere chiusa dopo l'installazione.
 
-### Windows
-
-La versione Windows è sperimentale e non è ancora stata verificata su Windows.
-Non è disponibile un'app standalone per Windows.
-Quando presente in Releases, scarica `VectorSuiteNative.aip`: con Illustrator
-chiuso, copialo nella cartella `Plug-ins` della sua installazione, poi riavvia
-Illustrator e apri **Finestra → Vector Suite**.
-
 ## Uso
 
 Seleziona un modulo nel pannello e regola le sue opzioni.
@@ -54,13 +46,9 @@ L'SDK e i plug-in di riferimento non sono inclusi.
 Mac: Xcode, Python 3 e Node.js; esegui `sh scripts/build-macos.sh`.
 Il DMG viene creato in `build/`.
 
-Windows: Visual Studio 2022 con C++, CMake e Python 3;
-esegui `./scripts/build-windows.ps1` da PowerShell.
-Il plug-in viene creato in `build/win/Release/`.
-
 Test senza SDK: `sh tests/run-native-unit-tests.sh`.
 Verifica del pacchetto Mac: `sh scripts/verify.sh`.
 I test automatici non sostituiscono le prove dentro Illustrator.
 
 Il workflow di rilascio richiede il segreto `AI_SDK_URL` e prepara una bozza,
-da pubblicare solo dopo le verifiche su entrambi i sistemi.
+da pubblicare dopo la verifica su macOS.
