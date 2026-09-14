@@ -16,13 +16,18 @@
 #ifndef VECTOR_SUITE_SUITES_H
 #define VECTOR_SUITE_SUITES_H
 
+#include "AIRasterize.h"
+#include "AIPlaced.h"
+
 #include "IllustratorSDK.h"
 #include "Suites.hpp"
 #include "AIAnnotator.h"
 #include "AIAnnotatorDrawer.h"
+#include "AICursorSnap.h"
 #include "AIActionManager.h"
 #include "AIArtboard.h"
 #include "AIAssertion.h"
+#include "AIDictionary.h"
 #include "AIMask.h"
 #include "AIMatchingArt.h"
 #include "AIMdMemory.h"
@@ -30,6 +35,7 @@
 #include "AIStringFormatUtils.h"
 #include "AITransformArt.h"
 
+extern  "C" SPBasicSuite*          sSPBasic;
 extern	"C"	AIMenuSuite*			sAIMenu;
 extern	"C"	AIToolSuite*			sAITool;
 extern	"C"	AIUnicodeStringSuite*	sAIUnicodeString;
@@ -42,6 +48,7 @@ extern	"C"	AIPathSuite*			sAIPath;
 extern	"C"	AIPathStyleSuite*		sAIPathStyle;
 extern  "C" AIAnnotatorSuite*		sAIAnnotator;
 extern  "C" AIAnnotatorDrawerSuite* sAIAnnotatorDrawer;
+extern  "C" AICursorSnapSuite*     sAICursorSnap;
 extern  "C" AIDocumentViewSuite*	sAIDocumentView;
 extern	"C" AIStringFormatUtilsSuite*	sAIStringFormatUtils;
 extern  "C" AIPanelSuite*          sAIPanel;
@@ -53,5 +60,10 @@ extern  "C" AIBlendStyleSuite*     sAIBlendStyle;
 extern  "C" AIActionManagerSuite*  sAIActionManager;
 extern  "C" AIArtboardSuite*       sAIArtboard;
 extern  "C" AIAssertionSuite*      sAIAssertion;
+extern  "C" AIDictionarySuite*     sAIDictionary;
+extern  "C" AITimerSuite*          sAITimer;
+extern  "C" AIDocumentSuite*       sAIDocument;
+extern  "C" AIRasterSuite*         sAIRaster;
+extern  "C" AIPlacedSuite*         sAIPlaced;
 
 #endif

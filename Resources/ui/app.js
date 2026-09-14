@@ -156,6 +156,51 @@
     document.getElementById("searchIcon").innerHTML = uiIcon("search");
     document.getElementById("rescanButton").innerHTML = uiIcon("rescan");
     document.getElementById("emptyMark").innerHTML = uiIcon("empty");
+    document.getElementById("installMark").innerHTML =
+      '<svg viewBox="0 0 ' + MARK_BOX + " " + MARK_BOX + '" aria-hidden="true">' +
+      (window.VSMark || "") + "</svg>";
+  }
+
+  /**
+   * Aggiorna il riquadro di installazione.
+   *
+   * I 22 moduli vivono in un solo bundle, quindi «installa tutto» è una sola
+   * copia: il riquadro lo dice esplicitamente invece di far credere che ci sia
+   * qualcosa da selezionare.
+   */
+  function renderInstallBox() {
+    var ready = 0;
+    var warned = 0;
+    modules.forEach(function (item) {
+      var status = statusFor(scanFor(item));
+      if (status.key === "ready") ready += 1;
+      if (status.key === "warning") warned += 1;
+    });
+
+    var box = document.getElementById("installBox");
+    var title = document.getElementById("installTitle");
+    var detail = document.getElementById("installDetail");
+    var button = document.getElementById("installButton");
+    var note = document.getElementById("installNote");
+    var complete = ready === modules.length;
+
+    box.className = "install-box" + (complete ? " done" : "");
+    if (complete) {
+      title.textContent = "Tutto installato";
+      detail.textContent = modules.length + " moduli attivi in Illustrator";
+      button.textContent = "Reinstalla";
+      note.textContent = "Riavvia Illustrator dopo ogni reinstallazione.";
+    } else if (warned > 0) {
+      title.textContent = "Da sistemare";
+      detail.textContent = warned + (warned === 1 ? " modulo con avvisi" : " moduli con avvisi");
+      button.textContent = "Reinstalla tutto";
+      note.textContent = "Reinstallare sostituisce il bundle e azzera gli avvisi.";
+    } else {
+      title.textContent = "Installa tutto";
+      detail.textContent = modules.length + " moduli in un solo bundle";
+      button.textContent = "Installa in Illustrator";
+      note.textContent = "Chiudi Illustrator prima di installare.";
+    }
   }
 
   function renderCategories() {
@@ -338,6 +383,7 @@
     });
 
     updateGlobalStatus();
+    renderInstallBox();
     renderModules();
     renderDetail();
   };
@@ -403,5 +449,6 @@
   renderModules();
   renderDetail();
   updateGlobalStatus();
+  renderInstallBox();
   postNative("ready");
 }());

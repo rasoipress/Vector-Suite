@@ -2,10 +2,9 @@
 
 Plug-in nativo per Adobe Illustrator 2026, costruito con l'SDK ufficiale.
 
-Il bundle registra un solo gruppo Vector Suite nella barra strumenti. Il gruppo
-contiene 22 moduli e 25 strumenti, inclusi Projection Studio e Fractal Grove.
-Il primo strumento apre il pannello nativo; ogni modulo può anche essere
-inserito singolarmente nelle toolbar personalizzate di Illustrator.
+Il bundle registra 22 moduli e 25 strumenti nativi interni, inclusi Projection
+Studio e Fractal Grove. Gli strumenti restano nascosti dalla barra strumenti e
+si attivano esclusivamente dal pannello Vector Suite.
 
 Il pannello adotta lo stesso sistema visivo dell'app di gestione: marchio
 isometrico, pastiglie di icona invertite, stessa scala tipografica e stessi

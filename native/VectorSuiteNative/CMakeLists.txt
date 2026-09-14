@@ -60,6 +60,7 @@ set(VS_SDK_SOURCES
   "${VS_SDK}/samplecode/common/source/IllustratorSDK.cpp"
   "${VS_SDK}/samplecode/common/source/SDKAboutPluginsHelper.cpp"
   "${VS_SDK}/illustratorapi/illustrator/AIAssert.cpp"
+	"${VS_SDK}/illustratorapi/illustrator/IAIFilePath.cpp"
   "${VS_SDK}/illustratorapi/illustrator/IAIUnicodeString.cpp"
   "${VS_SDK}/illustratorapi/illustrator/IAIStringFormatUtils.cpp"
   "${VS_SDK}/illustratorapi/illustrator/IAIArtboards.cpp"

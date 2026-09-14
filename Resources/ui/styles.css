@@ -204,6 +204,42 @@ svg.glyph .fill-on { fill: currentColor; stroke: none; }
 
 .sidebar-footer .eyebrow { margin-bottom: 8px; }
 
+/* Riquadro di installazione: una sola azione, perché i 22 moduli stanno in un
+   solo bundle. Installarli «tutti» e installarne uno sono la stessa cosa. */
+.install-box {
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--card);
+}
+
+.install-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+
+.install-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--inverse);
+  color: var(--inverse-ink);
+}
+
+.install-mark svg { width: 20px; height: 20px; }
+.install-head strong { display: block; font-size: 12px; font-weight: 600; }
+.install-head small { display: block; margin-top: 1px; color: var(--secondary); font-size: 10px; }
+.install-box .primary { margin-top: 0; height: 30px; }
+.install-note { margin: 8px 0 0; color: var(--tertiary); font-size: 10px; line-height: 1.4; }
+
+.install-box.done { border-color: var(--line); }
+.install-box.done .primary {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
 .status-line {
   display: flex;
   align-items: center;

@@ -29,6 +29,7 @@ extern "C" {
 	AIPathStyleSuite*		sAIPathStyle = NULL;
 	AIAnnotatorSuite*		sAIAnnotator = NULL;
 	AIAnnotatorDrawerSuite* sAIAnnotatorDrawer = NULL;
+	AICursorSnapSuite*		sAICursorSnap = NULL;
 	AIDocumentViewSuite*	sAIDocumentView = NULL;
 	AIStringFormatUtilsSuite*	sAIStringFormatUtils = NULL;
 	AIPanelSuite*			sAIPanel = NULL;
@@ -40,6 +41,11 @@ extern "C" {
 	AIActionManagerSuite*	sAIActionManager = NULL;
 	AIArtboardSuite*		sAIArtboard = NULL;
 	AIAssertionSuite*		sAIAssertion = NULL;
+	AIDictionarySuite*		sAIDictionary = NULL;
+	AITimerSuite*			sAITimer = NULL;
+	AIDocumentSuite*		sAIDocument = NULL;
+	AIRasterSuite*			sAIRaster = NULL;
+	AIPlacedSuite*			sAIPlaced = NULL;
 }
 
 ImportSuite gImportSuites[] = {
@@ -55,6 +61,7 @@ ImportSuite gImportSuites[] = {
 	kAIPathStyleSuite, kAIPathStyleSuiteVersion, &sAIPathStyle,
 	kAIAnnotatorSuite, kAIAnnotatorSuiteVersion, &sAIAnnotator,
 	kAIAnnotatorDrawerSuite, kAIAnnotatorDrawerSuiteVersion, &sAIAnnotatorDrawer,
+	kAICursorSnapSuite, kAICursorSnapSuiteVersion, &sAICursorSnap,
 	kAIDocumentViewSuite, kAIDocumentViewSuiteVersion, &sAIDocumentView,
 	kAIStringFormatUtilsSuite, kAIStringFormatUtilsSuiteVersion, &sAIStringFormatUtils,
 	kAIPanelSuite, kAIPanelSuiteVersion, &sAIPanel,
@@ -66,6 +73,15 @@ ImportSuite gImportSuites[] = {
 	kAIActionManagerSuite, kAIActionManagerSuiteVersion, &sAIActionManager,
 	kAIArtboardSuite, kAIArtboardSuiteVersion, &sAIArtboard,
 	kAIAssertionSuite, kAIAssertionSuiteVersion, &sAIAssertion,
+	kAIDictionarySuite, kAIDictionarySuiteVersion, &sAIDictionary,
+	kAITimerSuite, kAITimerSuiteVersion, &sAITimer,
+	kAIDocumentSuite, kAIDocumentSuiteVersion, &sAIDocument,
+	// Illustrator 30.6 pubblica ancora la versione 10 di AIRaster. Le funzioni
+	// usate da Raster Lab (Get/SetRasterInfo) appartengono al prefisso ABI
+	// stabile della suite. AIRasterize viene invece pubblicata dopo lo startup
+	// e viene acquisita al momento del comando.
+	kAIRasterSuite, AIAPI_VERSION(10), &sAIRaster,
+	kAIPlacedSuite, kAIPlacedSuiteVersion, &sAIPlaced,
 	nullptr, 0, nullptr
 };
 

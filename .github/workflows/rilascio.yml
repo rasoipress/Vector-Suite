@@ -71,9 +71,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: vector-suite-macos
-          path: |
-            build/Vector Suite.dmg
-            build/native/release/VectorSuiteNative.aip
+          path: build/Vector Suite.dmg
+          if-no-files-found: error
           retention-days: 30
 
   windows:
@@ -122,10 +121,11 @@ jobs:
         with:
           name: vector-suite-windows
           path: build/win/Release/VectorSuiteNative.aip
+          if-no-files-found: error
           retention-days: 30
 
   release:
-    name: Pubblico la release
+    name: Preparo la bozza di release
     needs: [macos, windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
@@ -140,14 +140,17 @@ jobs:
       - name: Allego i pacchetti al tag
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          prerelease: true
+          fail_on_unmatched_files: true
           files: |
             artefatti/vector-suite-macos/*
             artefatti/vector-suite-windows/*
           body: |
             Vector Suite ${{ github.ref_name }}
 
-            Versione dichiarata dal pacchetto e dal tag: la stessa. Il
-            workflow si ferma se i due valori divergono.
+            Versione sperimentale. Verificare entrambi i pacchetti dentro
+            Illustrator prima di pubblicare questa bozza.
 
             - **macOS**: `Vector Suite.dmg` contiene il gestore e il plug-in.
               Firma ad hoc: al primo avvio aprire l'app con tasto destro > Apri.

@@ -24,7 +24,11 @@ mkdir -p "$MODULE_CACHE"
 python3 "$SCRIPT_DIR/apply-version.py"
 python3 "$SCRIPT_DIR/generate-assets.py"
 
-"$SCRIPT_DIR/build-native.sh"
+if [ "${VECTOR_SUITE_NATIVE_ALREADY_BUILT:-0}" = "1" ]; then
+  "$SCRIPT_DIR/verify-native.sh"
+else
+  "$SCRIPT_DIR/build-native.sh"
+fi
 
 clang \
   "$PROJECT_DIR/Sources/main.m" \
@@ -53,24 +57,33 @@ mkdir -p "$ICONSET_DIR" "$ICON_PREVIEW_DIR"
 # Illustrator resta intatto. Nel master le classi CSS sono già risolte in
 # attributi, perché i rasterizzatori che ignorano il foglio di stile
 # restituirebbero un quadrato nero.
-# QuickLook ha bisogno di una sessione grafica: su una macchina di build
-# automatica non produce niente. Se c'è rsvg-convert si usa quello, che non
-# dipende dal server delle finestre; altrimenti si ripiega su QuickLook.
-if command -v rsvg-convert >/dev/null 2>&1; then
+# Il master 1024×1024 è già nel repository, con il canale alfa corretto: il
+# margine attorno allo squircle è trasparente, non bianco.
+#
+# Prima veniva rasterizzato al volo da QuickLook, che appiattisce su fondo
+# bianco: da lì la banda chiara attorno all'icona, visibile appena il Dock o il
+# Finder non erano su sfondo bianco. Rasterizzare qui serve solo se qualcuno
+# tocca il disegno senza rigenerare il master.
+ICON_MASTER_PNG="$PROJECT_DIR/Resources/icon/VectorSuiteIcon-1024.png"
+
+if [ -f "$ICON_MASTER_PNG" ] && [ "$ICON_MASTER_PNG" -nt "$PROJECT_DIR/Resources/VectorSuiteLogo.svg" ]; then
+  cp "$ICON_MASTER_PNG" "$MASTER_ICON"
+elif command -v rsvg-convert >/dev/null 2>&1; then
   rsvg-convert -w 1024 -h 1024 -o "$MASTER_ICON" "$ICON_MASTER_SVG"
-else
-  qlmanage -t -s 1024 -o "$ICON_PREVIEW_DIR" "$ICON_MASTER_SVG" >/dev/null 2>&1 || true
-  if [ -f "$ICON_PREVIEW_DIR/VectorSuiteIcon.svg.png" ]; then
-    cp "$ICON_PREVIEW_DIR/VectorSuiteIcon.svg.png" "$MASTER_ICON"
-  fi
+elif [ -f "$ICON_MASTER_PNG" ]; then
+  echo "Nota: il disegno è più recente del master PNG. Rigeneralo con" >&2
+  echo "  rsvg-convert -w 1024 -h 1024 -o \"$ICON_MASTER_PNG\" \"$ICON_MASTER_SVG\"" >&2
+  cp "$ICON_MASTER_PNG" "$MASTER_ICON"
 fi
 
 if [ ! -f "$MASTER_ICON" ]; then
-  echo "Errore: nessun rasterizzatore ha prodotto il master dell'icona." >&2
-  echo "Installa librsvg (brew install librsvg) oppure genera a mano il PNG" >&2
-  echo "1024×1024 in $MASTER_ICON e rilancia." >&2
+  echo "Errore: manca il master 1024×1024 dell'icona." >&2
+  echo "Atteso in: $ICON_MASTER_PNG" >&2
   exit 1
 fi
+
+# sips conserva il canale alfa solo se la destinazione è PNG: le misure sotto
+# lo sono tutte, quindi il margine resta trasparente a ogni dimensione.
 sips -z 16 16 "$MASTER_ICON" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
 sips -z 32 32 "$MASTER_ICON" --out "$ICONSET_DIR/icon_16x16@2x.png" >/dev/null
 sips -z 32 32 "$MASTER_ICON" --out "$ICONSET_DIR/icon_32x32.png" >/dev/null
@@ -106,25 +119,39 @@ sanitise_bundle() {
 # passaggio si salta da solo e l'app resta valida con la sola icona .icns.
 "$SCRIPT_DIR/build-liquid-glass-icon.sh" "$APP_BUNDLE"
 
-# `--deep` è deprecato per la firma e amplifica proprio questo errore: qui non
-# ci sono bundle annidati, quindi la firma piatta è sufficiente e corretta.
-sanitise_bundle "$APP_BUNDLE"
-codesign --force --sign - "$APP_BUNDLE/Contents/Resources/Native/VectorSuiteNative.aip"
-codesign --force --sign - "$APP_BUNDLE"
-
 # La cartella Documenti può essere gestita da un file provider che riapplica
-# FinderInfo al contenitore .app. Il DMG è quindi prodotto da una copia pulita
-# temporanea: è il pacchetto di distribuzione verificabile e installabile.
+# FinderInfo anche mentre codesign sta leggendo il bundle. Sanitizzazione e
+# firma avvengono quindi interamente in /private/tmp, fuori dal file provider.
+# Solo il risultato già firmato viene riportato in build/ e usato per il DMG.
+SIGN_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/vector-suite-sign.XXXXXX")
 DMG_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/vector-suite-dmg.XXXXXX")
-trap 'rm -rf "$DMG_STAGE"' EXIT HUP INT TERM
-ditto --norsrc --noextattr --noacl "$APP_BUNDLE" "$DMG_STAGE/Vector Suite.app"
-xattr -cr "$DMG_STAGE/Vector Suite.app" 2>/dev/null || true
+trap 'rm -rf "$SIGN_STAGE" "$DMG_STAGE"' EXIT HUP INT TERM
+ditto --norsrc --noextattr --noacl "$APP_BUNDLE" "$SIGN_STAGE/Vector Suite.app"
+xattr -cr "$SIGN_STAGE/Vector Suite.app" 2>/dev/null || true
+find "$SIGN_STAGE/Vector Suite.app" -name '.DS_Store' -delete 2>/dev/null || true
+find "$SIGN_STAGE/Vector Suite.app" -name '._*' -delete 2>/dev/null || true
+codesign --force --sign - "$SIGN_STAGE/Vector Suite.app/Contents/Resources/Native/VectorSuiteNative.aip"
+codesign --force --sign - "$SIGN_STAGE/Vector Suite.app"
+codesign --verify --deep --strict "$SIGN_STAGE/Vector Suite.app"
+
+rm -rf "$APP_BUNDLE"
+ditto --norsrc --noextattr --noacl "$SIGN_STAGE/Vector Suite.app" "$APP_BUNDLE"
+# Il File Provider può aggiungere FinderInfo/provenance nel solo passaggio di
+# ritorno da /private/tmp a Documenti. Rimuoverli dopo la copia non modifica il
+# contenuto firmato e rende verificabile anche l'app lasciata in build/, non
+# soltanto quella usata come sorgente del DMG.
+xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+find "$APP_BUNDLE" -name '.DS_Store' -delete 2>/dev/null || true
+find "$APP_BUNDLE" -name '._*' -delete 2>/dev/null || true
+codesign --verify --deep --strict "$APP_BUNDLE"
+
+ditto --norsrc --noextattr --noacl "$SIGN_STAGE/Vector Suite.app" "$DMG_STAGE/Vector Suite.app"
 codesign --verify --deep --strict "$DMG_STAGE/Vector Suite.app"
 ln -s /Applications "$DMG_STAGE/Applications"
 rm -f "$DMG_PATH"
 hdiutil create -quiet -volname "Vector Suite" -srcfolder "$DMG_STAGE" -format UDZO "$DMG_PATH"
 hdiutil verify "$DMG_PATH" >/dev/null
-rm -rf "$DMG_STAGE"
+rm -rf "$SIGN_STAGE" "$DMG_STAGE"
 trap - EXIT HUP INT TERM
 
 echo "App compilata e firmata: $APP_BUNDLE"

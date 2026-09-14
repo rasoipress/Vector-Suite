@@ -6,8 +6,7 @@ Illustrator 2026.
 Il plug-in registra:
 
 - un pannello AppKit nativo accessibile da `Finestra > Vector Suite`;
-- un solo gruppo Vector Suite nella toolbar;
-- 25 strumenti inseribili anche singolarmente nelle toolbar personalizzate;
+- 25 strumenti nativi interni, nascosti dalla toolbar e attivabili dal pannello;
 - 22 moduli con nomi, categorie e descrizioni condivisi con l’app standalone;
 - il pannello parametrico Fractal Grove con 12 slider e tutte le opzioni di
   generazione, persistenti tra le sessioni.

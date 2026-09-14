@@ -23,7 +23,10 @@ jobs:
           node-version: '20'
 
       - name: Strumenti
-        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils clang
+
+      - name: Test della geometria e dei moduli
+        run: sh tests/run-native-unit-tests.sh
 
       - name: Versione allineata fra VERSION e i due plist
         run: python3 scripts/apply-version.py --check

@@ -170,6 +170,16 @@ check(/2 di 22 rilevati/.test(elements.get("detectedLabel").textContent),
   "il riepilogo laterale non riflette la scansione: " +
   elements.get("detectedLabel").textContent);
 
+// Il riquadro di installazione deve reagire alla scansione: con un modulo in
+// avviso deve proporre la reinstallazione, non l'installazione da zero.
+check(elements.get("installTitle").textContent === "Da sistemare",
+  "il riquadro di installazione non segnala gli avvisi: " +
+  elements.get("installTitle").textContent);
+check(/Reinstalla/.test(elements.get("installButton").textContent),
+  "il pulsante del riquadro non propone la reinstallazione: " +
+  elements.get("installButton").textContent);
+wellFormed(elements.get("installMark").innerHTML, "riquadro · marchio");
+
 // Selezione da menu: deve puntare al modulo giusto e rigenerare il dettaglio.
 try {
   context.window.selectModule("module-22");

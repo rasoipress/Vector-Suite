@@ -38,9 +38,11 @@ Manca l'Adobe Illustrator SDK.
 
 Write-Host '== Applico la versione dal file VERSION'
 python (Join-Path $projectRoot 'scripts\apply-version.py')
+if ($LASTEXITCODE -ne 0) { throw 'Aggiornamento versione non riuscito.' }
 
 Write-Host '== Rigenero icone e mappa delle risorse'
 python (Join-Path $projectRoot 'scripts\generate-assets.py')
+if ($LASTEXITCODE -ne 0) { throw 'Generazione icone non riuscita.' }
 
 Write-Host "== Configuro ($Configuration, x64)"
 cmake -S $sourceDir -B $buildDir -A x64

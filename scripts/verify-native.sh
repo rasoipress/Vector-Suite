@@ -10,6 +10,7 @@ plutil -lint "$PLUGIN_ROOT/Config/Info.plist"
 python3 "$SCRIPT_DIR/apply-version.py" --check
 python3 "$SCRIPT_DIR/generate-assets.py" --check
 python3 "$SCRIPT_DIR/verify-catalog.py"
+/bin/sh "$PROJECT_ROOT/tests/run-native-unit-tests.sh"
 ICON_COUNT=$(find "$PLUGIN_ROOT/Resources/raw" -maxdepth 1 -type f -name 'VSIcon-*.svg' | wc -l | tr -d ' ')
 test "$ICON_COUNT" -eq 25 || { echo "Attese 25 icone native, trovate $ICON_COUNT."; exit 1; }
 for ICON in "$PLUGIN_ROOT"/Resources/raw/VSIcon-*.svg; do
@@ -34,7 +35,7 @@ if [ -d "$BUNDLE" ]; then
   test -x "$EXECUTABLE"
   test -f "$BUNDLE/Contents/Resources/pipl/plugin.pipl"
   test -f "$BUNDLE/Contents/Resources/txt/IDToFile.txt"
-  test "$(defaults read "$BUNDLE/Contents/Info.plist" CFBundleIdentifier)" = "studio.vectorsuite.plugin.core"
+  test "$(plutil -extract CFBundleIdentifier raw -o - "$BUNDLE/Contents/Info.plist")" = "studio.vectorsuite.plugin.core"
   BUNDLE_ICON_COUNT=$(find "$BUNDLE/Contents/Resources/svg" -maxdepth 1 -type f -name 'VSIcon-*.svg' | wc -l | tr -d ' ')
   test "$BUNDLE_ICON_COUNT" -eq 25 || { echo "Bundle incompleto: $BUNDLE_ICON_COUNT/25 icone."; exit 1; }
   codesign --verify --deep --verbose=2 "$BUNDLE"

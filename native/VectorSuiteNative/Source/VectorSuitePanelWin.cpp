@@ -35,6 +35,7 @@
 
 #include "VectorSuiteCatalog.h"
 #include "VectorSuitePanel.h"
+#include "VectorSuiteProjection.h"
 #include "../Resources/Win/icons.h"
 
 #pragma comment(lib, "gdiplus.lib")
@@ -288,7 +289,12 @@ enum {
 	kIDReplace,
 	kIDWaveFirst,          // quattro pulsanti consecutivi
 	kIDSliderFirst = 3100, // dodici cursori consecutivi
-	kIDValueFirst = 3200   // dodici caselle numeriche consecutive
+	kIDValueFirst = 3200,  // dodici caselle numeriche consecutive
+	kIDProjPresetFirst = 3300, // tre preset consecutivi
+	kIDProjPlaneFirst = 3310,  // tre piani consecutivi
+	kIDProjSnap = 3320,
+	kIDProjLeft = 3321,
+	kIDProjRight = 3322
 };
 
 struct VSParameter {
@@ -348,11 +354,19 @@ struct VSPanel {
 	HWND newSeed = nullptr;
 	HWND reset = nullptr;
 
+	// Projection Studio
+	HWND projPreset[3] = {};
+	HWND projPlane[3] = {};
+	HWND projSnap = nullptr;
+	HWND projLeft = nullptr;
+	HWND projRight = nullptr;
+
 	HFONT fontTitle = nullptr;
 	HFONT fontCard = nullptr;
 	HFONT fontBody = nullptr;
 	HFONT fontSmall = nullptr;
 	HFONT fontEyebrow = nullptr;
+	HFONT fontMono = nullptr;
 
 	HBRUSH fieldBrush = nullptr;   // riusato: crearlo a ogni WM_CTLCOLOR perde oggetti GDI
 	ULONG_PTR gdiplusToken = 0;
@@ -429,6 +443,73 @@ void VSWritePreference(const char* key, double value)
 // ---------------------------------------------------------------------------
 // Parametri di Fractal Grove
 // ---------------------------------------------------------------------------
+
+const wchar_t* kProjectionKey = L"Software\\Vector Suite\\Projection";
+
+double VSReadProjection(const char* key, double fallback)
+{
+	HKEY handle = nullptr;
+	if (RegOpenKeyExW(HKEY_CURRENT_USER, kProjectionKey, 0, KEY_READ, &handle)
+			!= ERROR_SUCCESS) {
+		return fallback;
+	}
+	wchar_t buffer[64] = {};
+	DWORD size = sizeof(buffer);
+	DWORD type = REG_SZ;
+	const std::wstring name = VSWiden(key);
+	const LONG status = RegQueryValueExW(handle, name.c_str(), nullptr, &type,
+										 reinterpret_cast<LPBYTE>(buffer), &size);
+	RegCloseKey(handle);
+	return status == ERROR_SUCCESS ? _wtof(buffer) : fallback;
+}
+
+void VSWriteProjection(const char* key, double value)
+{
+	HKEY handle = nullptr;
+	if (RegCreateKeyExW(HKEY_CURRENT_USER, kProjectionKey, 0, nullptr, 0,
+						KEY_WRITE, nullptr, &handle, nullptr) != ERROR_SUCCESS) {
+		return;
+	}
+	wchar_t buffer[64];
+	swprintf_s(buffer, L"%.6f", value);
+	const std::wstring name = VSWiden(key);
+	RegSetValueExW(handle, name.c_str(), 0, REG_SZ,
+				   reinterpret_cast<const BYTE*>(buffer),
+				   static_cast<DWORD>((wcslen(buffer) + 1) * sizeof(wchar_t)));
+	RegCloseKey(handle);
+}
+
+/// Ripristina le impostazioni salvate e le consegna al plug-in.
+void VSRestoreProjection()
+{
+	VSProjectionSettings settings = VSProjectionDefaults();
+	settings.leftAngle = VSReadProjection("leftAngle", settings.leftAngle);
+	settings.rightAngle = VSReadProjection("rightAngle", settings.rightAngle);
+	settings.plane = static_cast<int>(VSReadProjection("plane", settings.plane));
+	settings.snapLine = VSReadProjection("snapLine", settings.snapLine) != 0 ? 1 : 0;
+	settings.moveDistance = VSReadProjection("moveDistance", settings.moveDistance);
+	settings.moveAxis = static_cast<int>(VSReadProjection("moveAxis", settings.moveAxis));
+	settings.scaleU = VSReadProjection("scaleU", settings.scaleU);
+	settings.scaleV = VSReadProjection("scaleV", settings.scaleV);
+	settings.rotation = VSReadProjection("rotation", settings.rotation);
+	settings.shear = VSReadProjection("shear", settings.shear);
+	VSProjectionSet(&settings);
+}
+
+void VSStoreProjection(const VSProjectionSettings& settings)
+{
+	VSProjectionSet(&settings);
+	VSWriteProjection("leftAngle", settings.leftAngle);
+	VSWriteProjection("rightAngle", settings.rightAngle);
+	VSWriteProjection("plane", settings.plane);
+	VSWriteProjection("snapLine", settings.snapLine);
+	VSWriteProjection("moveDistance", settings.moveDistance);
+	VSWriteProjection("moveAxis", settings.moveAxis);
+	VSWriteProjection("scaleU", settings.scaleU);
+	VSWriteProjection("scaleV", settings.scaleV);
+	VSWriteProjection("rotation", settings.rotation);
+	VSWriteProjection("shear", settings.shear);
+}
 
 bool VSAdvancedOn(const VSPanel* panel)
 {
@@ -604,6 +685,18 @@ void VSRefreshVisible(VSPanel* panel)
 // Disposizione
 // ---------------------------------------------------------------------------
 
+void VSShowProjectionControls(VSPanel* panel, bool visible)
+{
+	const int mode = visible ? SW_SHOW : SW_HIDE;
+	for (int index = 0; index < 3; ++index) {
+		if (panel->projPreset[index]) ShowWindow(panel->projPreset[index], mode);
+		if (panel->projPlane[index]) ShowWindow(panel->projPlane[index], mode);
+	}
+	if (panel->projLeft) ShowWindow(panel->projLeft, mode);
+	if (panel->projRight) ShowWindow(panel->projRight, mode);
+	if (panel->projSnap) ShowWindow(panel->projSnap, mode);
+}
+
 void VSShowFractalControls(VSPanel* panel, bool visible)
 {
 	const int mode = visible ? SW_SHOW : SW_HIDE;
@@ -648,6 +741,44 @@ int VSLayoutCanvas(VSPanel* panel)
 			panel->cards.push_back(hit);
 		}
 		y += cardHeight + gutter;
+	}
+
+	const int labelColumn = VSScale(panel, 112);
+	const int gap = VSScale(panel, 8);
+	const int contentLeft = margin + VSScale(panel, 4);
+	const int contentRight = width - margin - VSScale(panel, 4);
+
+	const bool showProjection = panel->selectedModule == kVSProjectionStudio;
+	VSShowProjectionControls(panel, showProjection);
+	if (showProjection) {
+		y += VSScale(panel, 8) + VSScale(panel, 20);   // intestazione «Proiezione»
+		const int third = (contentRight - contentLeft) / 3;
+		for (int index = 0; index < 3; ++index) {
+			MoveWindow(panel->projPreset[index], contentLeft + index * third, y,
+					   third, VSScale(panel, 22), TRUE);
+		}
+		y += VSScale(panel, 28);
+
+		const int sliderWidth = contentRight - contentLeft - labelColumn - gap -
+								VSScale(panel, 56) - gap;
+		MoveWindow(panel->projLeft, contentLeft + labelColumn + gap, y,
+				   sliderWidth, VSScale(panel, 20), TRUE);
+		y += VSScale(panel, 24);
+		MoveWindow(panel->projRight, contentLeft + labelColumn + gap, y,
+				   sliderWidth, VSScale(panel, 20), TRUE);
+		y += VSScale(panel, 24);
+
+		y += VSScale(panel, 20);                        // intestazione «Piano attivo»
+		for (int index = 0; index < 3; ++index) {
+			MoveWindow(panel->projPlane[index], contentLeft + index * third, y,
+					   third, VSScale(panel, 22), TRUE);
+		}
+		y += VSScale(panel, 28);
+
+		MoveWindow(panel->projSnap, contentLeft, y,
+				   contentRight - contentLeft, VSScale(panel, 22), TRUE);
+		y += VSScale(panel, 30);
+		return y + margin;
 	}
 
 	const bool showFractal = panel->selectedModule == kVSFractalGrove;
@@ -896,6 +1027,37 @@ void VSPaintCards(VSPanel* panel, HDC device, const RECT& client)
 				   panel->theme.muted, DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS);
 	}
 
+	if (panel->selectedModule == kVSProjectionStudio && !panel->cards.empty()) {
+		const int left = VSScale(panel, kGutter) + VSScale(panel, 4);
+		int y = panel->cards.back().bounds.bottom + VSScale(panel, kGutter) + VSScale(panel, 8);
+		const VSProjectionSettings settings = VSProjectionGet();
+
+		RECT head = { left, y, client.right - left, y + VSScale(panel, 18) };
+		VSDrawText(device, L"PROIEZIONE", head, panel->fontEyebrow,
+				   panel->theme.quiet, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+		y += VSScale(panel, 20) + VSScale(panel, 28);
+
+		const wchar_t* captions[2] = { L"Angolo sinistro", L"Angolo destro" };
+		const double angles[2] = { settings.leftAngle, settings.rightAngle };
+		for (int index = 0; index < 2; ++index) {
+			RECT caption = { left, y, left + VSScale(panel, 112), y + VSScale(panel, 20) };
+			VSDrawText(device, captions[index], caption, panel->fontBody,
+					   panel->theme.muted, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+			wchar_t value[32];
+			swprintf_s(value, L"%.0f°", angles[index]);
+			RECT box = { client.right - left - VSScale(panel, 56), y,
+						 client.right - left, y + VSScale(panel, 20) };
+			VSDrawText(device, value, box, panel->fontMono ? panel->fontMono : panel->fontBody,
+					   panel->theme.ink, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+			y += VSScale(panel, 24);
+		}
+
+		RECT plane = { left, y, client.right - left, y + VSScale(panel, 18) };
+		VSDrawText(device, L"PIANO ATTIVO", plane, panel->fontEyebrow,
+				   panel->theme.quiet, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+		return;
+	}
+
 	if (panel->selectedModule != kVSFractalGrove || panel->cards.empty()) return;
 
 	// Intestazioni di sezione e riga di stato di Fractal Grove: i controlli sono
@@ -1021,16 +1183,129 @@ void VSHandleCommand(VSPanel* panel, WPARAM wParam)
 			}
 		}
 	}
+	else if (identifier >= kIDProjPresetFirst && identifier < kIDProjPresetFirst + 3) {
+		VSProjectionSettings settings = VSProjectionGet();
+		if (identifier == kIDProjPresetFirst) {
+			settings.leftAngle = 30.0;
+			settings.rightAngle = 30.0;
+		}
+		else if (identifier == kIDProjPresetFirst + 1) {
+			settings.leftAngle = 7.0;
+			settings.rightAngle = 42.0;
+		}
+		else {
+			return;   // «Libera» lascia gli angoli come sono
+		}
+		VSStoreProjection(settings);
+		SendMessageW(panel->projLeft, TBM_SETPOS, TRUE,
+					 static_cast<LPARAM>(std::lround(settings.leftAngle)));
+		SendMessageW(panel->projRight, TBM_SETPOS, TRUE,
+					 static_cast<LPARAM>(std::lround(settings.rightAngle)));
+		InvalidateRect(panel->canvas, nullptr, FALSE);
+	}
+	else if (identifier >= kIDProjPlaneFirst && identifier < kIDProjPlaneFirst + 3) {
+		VSProjectionSettings settings = VSProjectionGet();
+		settings.plane = identifier - kIDProjPlaneFirst;
+		VSStoreProjection(settings);
+	}
+	else if (identifier == kIDProjSnap) {
+		VSProjectionSettings settings = VSProjectionGet();
+		settings.snapLine =
+			SendMessageW(panel->projSnap, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0;
+		VSStoreProjection(settings);
+	}
 	else if (identifier >= kIDWaveFirst && identifier < kIDWaveFirst + 4) {
 		VSWritePreference("wave", identifier - kIDWaveFirst);
 		if (VSAutomaticOn(panel)) VSGenerateNow(panel);
 	}
 }
 
+/// Il trackbar di Windows disegna un pomello a goccia colorato con l'accento di
+/// sistema. Qui viene ridisegnato: traccia sottile e tacca verticale, come nel
+/// pannello macOS.
+LRESULT VSDrawSlider(VSPanel* panel, NMCUSTOMDRAW* draw)
+{
+	if (draw->dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
+	if (draw->dwDrawStage != CDDS_ITEMPREPAINT) return CDRF_DODEFAULT;
+
+	Gdiplus::Graphics graphics(draw->hdc);
+	graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+
+	if (draw->dwItemSpec == TBCD_CHANNEL) {
+		RECT bounds;
+		GetClientRect(draw->hdr.hwndFrom, &bounds);
+		const float height = 3.0f;
+		const float centre = (bounds.bottom - bounds.top) * 0.5f;
+		Gdiplus::RectF track(static_cast<Gdiplus::REAL>(bounds.left + 6),
+							 centre - height * 0.5f,
+							 static_cast<Gdiplus::REAL>(bounds.right - bounds.left - 12),
+							 height);
+		Gdiplus::SolidBrush rest(VSToGdi(panel->theme.line));
+		Gdiplus::GraphicsPath* shape = VSRoundedPath(track, height * 0.5f);
+		graphics.FillPath(&rest, shape);
+		delete shape;
+
+		const LRESULT minimum = SendMessageW(draw->hdr.hwndFrom, TBM_GETRANGEMIN, 0, 0);
+		const LRESULT maximum = SendMessageW(draw->hdr.hwndFrom, TBM_GETRANGEMAX, 0, 0);
+		const LRESULT position = SendMessageW(draw->hdr.hwndFrom, TBM_GETPOS, 0, 0);
+		if (maximum > minimum) {
+			const float ratio = static_cast<float>(position - minimum) /
+								static_cast<float>(maximum - minimum);
+			Gdiplus::RectF filled(track.X, track.Y, track.Width * ratio, track.Height);
+			if (filled.Width > 0.5f) {
+				Gdiplus::SolidBrush done(VSToGdi(panel->theme.ink));
+				Gdiplus::GraphicsPath* progress = VSRoundedPath(filled, height * 0.5f);
+				graphics.FillPath(&done, progress);
+				delete progress;
+			}
+		}
+		return CDRF_SKIPDEFAULT;
+	}
+
+	if (draw->dwItemSpec == TBCD_THUMB) {
+		const float width = 3.0f;
+		const float height = 14.0f;
+		const float centreX = (draw->rc.left + draw->rc.right) * 0.5f;
+		const float centreY = (draw->rc.top + draw->rc.bottom) * 0.5f;
+		Gdiplus::RectF mark(centreX - width * 0.5f, centreY - height * 0.5f, width, height);
+
+		Gdiplus::SolidBrush halo(VSToGdi(panel->theme.paper));
+		Gdiplus::GraphicsPath* outline =
+			VSRoundedPath(Gdiplus::RectF(mark.X - 1.5f, mark.Y - 1.5f,
+										 mark.Width + 3.0f, mark.Height + 3.0f), 2.5f);
+		graphics.FillPath(&halo, outline);
+		delete outline;
+
+		Gdiplus::SolidBrush ink(VSToGdi(panel->theme.ink));
+		Gdiplus::GraphicsPath* bar = VSRoundedPath(mark, 1.5f);
+		graphics.FillPath(&ink, bar);
+		delete bar;
+		return CDRF_SKIPDEFAULT;
+	}
+
+	return CDRF_DODEFAULT;
+}
+
 LRESULT CALLBACK VSCanvasProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	VSPanel* panel = VSPanelFrom(window);
 	switch (message) {
+	case WM_NOTIFY: {
+		if (!panel) break;
+		NMHDR* header = reinterpret_cast<NMHDR*>(lParam);
+		if (header->code == NM_CUSTOMDRAW) {
+			if (header->hwndFrom == panel->projLeft ||
+				header->hwndFrom == panel->projRight) {
+				return VSDrawSlider(panel, reinterpret_cast<NMCUSTOMDRAW*>(lParam));
+			}
+			for (int index = 0; index < kParameterCount; ++index) {
+				if (panel->sliders[index] == header->hwndFrom) {
+					return VSDrawSlider(panel, reinterpret_cast<NMCUSTOMDRAW*>(lParam));
+				}
+			}
+		}
+		break;
+	}
 	case WM_PAINT:
 		if (panel) VSPaintBuffered(panel, window, false);
 		return 0;
@@ -1054,6 +1329,29 @@ LRESULT CALLBACK VSCanvasProc(HWND window, UINT message, WPARAM wParam, LPARAM l
 	case WM_HSCROLL: {
 		if (!panel) break;
 		HWND slider = reinterpret_cast<HWND>(lParam);
+
+		if (slider == panel->projLeft || slider == panel->projRight) {
+			VSProjectionSettings settings = VSProjectionGet();
+			const double value =
+				static_cast<double>(SendMessageW(slider, TBM_GETPOS, 0, 0));
+			if (slider == panel->projLeft) settings.leftAngle = value;
+			else settings.rightAngle = value;
+			VSStoreProjection(settings);
+
+			// Muovere un cursore a mano significa uscire dai preset.
+			const bool isometric = std::abs(settings.leftAngle - 30.0) < 0.05 &&
+								   std::abs(settings.rightAngle - 30.0) < 0.05;
+			const bool dimetric = std::abs(settings.leftAngle - 7.0) < 0.05 &&
+								  std::abs(settings.rightAngle - 42.0) < 0.05;
+			const int preset = isometric ? 0 : (dimetric ? 1 : 2);
+			for (int index = 0; index < 3; ++index) {
+				SendMessageW(panel->projPreset[index], BM_SETCHECK,
+							 index == preset ? BST_CHECKED : BST_UNCHECKED, 0);
+			}
+			InvalidateRect(panel->canvas, nullptr, FALSE);
+			return 0;
+		}
+
 		for (int index = 0; index < kParameterCount; ++index) {
 			if (panel->sliders[index] != slider) continue;
 			VSWritePreference(kParameters[index].key, VSValueFor(panel, index));
@@ -1291,6 +1589,44 @@ void VSBuildControls(VSPanel* panel)
 								 BS_PUSHBUTTON, kIDReset);
 	panel->generate = VSCreateChild(panel, panel->canvas, L"BUTTON", L"Genera albero",
 									BS_DEFPUSHBUTTON, kIDGenerate);
+
+	// --- Projection Studio ---
+	VSRestoreProjection();
+	const VSProjectionSettings projection = VSProjectionGet();
+
+	const wchar_t* presets[] = { L"Isometrica", L"Dimetrica", L"Libera" };
+	for (int index = 0; index < 3; ++index) {
+		panel->projPreset[index] = VSCreateChild(
+			panel, panel->canvas, L"BUTTON", presets[index],
+			BS_AUTORADIOBUTTON | (index == 0 ? WS_GROUP : 0), kIDProjPresetFirst + index);
+	}
+
+	panel->projLeft = VSCreateChild(panel, panel->canvas, TRACKBAR_CLASSW, L"",
+									TBS_HORZ | TBS_NOTICKS, kIDProjLeft);
+	SendMessageW(panel->projLeft, TBM_SETRANGE, TRUE, MAKELPARAM(1, 89));
+	SendMessageW(panel->projLeft, TBM_SETPOS, TRUE,
+				 static_cast<LPARAM>(std::lround(projection.leftAngle)));
+
+	panel->projRight = VSCreateChild(panel, panel->canvas, TRACKBAR_CLASSW, L"",
+									 TBS_HORZ | TBS_NOTICKS, kIDProjRight);
+	SendMessageW(panel->projRight, TBM_SETRANGE, TRUE, MAKELPARAM(1, 89));
+	SendMessageW(panel->projRight, TBM_SETPOS, TRUE,
+				 static_cast<LPARAM>(std::lround(projection.rightAngle)));
+
+	const wchar_t* planes[] = { L"Superiore", L"Sinistro", L"Destro" };
+	for (int index = 0; index < 3; ++index) {
+		panel->projPlane[index] = VSCreateChild(
+			panel, panel->canvas, L"BUTTON", planes[index],
+			BS_AUTORADIOBUTTON | (index == 0 ? WS_GROUP : 0), kIDProjPlaneFirst + index);
+	}
+	SendMessageW(panel->projPlane[max(0, min(2, projection.plane))],
+				 BM_SETCHECK, BST_CHECKED, 0);
+
+	panel->projSnap = VSCreateChild(panel, panel->canvas, L"BUTTON",
+									L"Aggancia la linea agli assi",
+									BS_AUTOCHECKBOX, kIDProjSnap);
+	SendMessageW(panel->projSnap, BM_SETCHECK,
+				 projection.snapLine ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
 }  // namespace
@@ -1333,6 +1669,7 @@ extern "C" void* VSCreatePanelController(
 	panel->fontBody = VSCreateFont(8, FW_NORMAL, panel->dpi);
 	panel->fontSmall = VSCreateFont(8, FW_NORMAL, panel->dpi);
 	panel->fontEyebrow = VSCreateFont(7, FW_SEMIBOLD, panel->dpi);
+	panel->fontMono = VSCreateFont(8, FW_NORMAL, panel->dpi);
 
 	panel->icons.resize(kVSModuleCount, nullptr);
 	for (int moduleID = 0; moduleID < kVSModuleCount; ++moduleID) {
@@ -1380,8 +1717,8 @@ extern "C" void VSDestroyPanelController(void* controller)
 	if (panel->host) DestroyWindow(panel->host);
 
 	HFONT fonts[] = { panel->fontTitle, panel->fontCard, panel->fontBody,
-					  panel->fontSmall, panel->fontEyebrow };
-	for (int index = 0; index < 5; ++index) {
+					  panel->fontSmall, panel->fontEyebrow, panel->fontMono };
+	for (int index = 0; index < 6; ++index) {
 		if (fonts[index]) DeleteObject(fonts[index]);
 	}
 	if (panel->fieldBrush) DeleteObject(panel->fieldBrush);

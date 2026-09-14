@@ -2,6 +2,10 @@
 *.log
 dist/
 build/
+backups/
+__pycache__/
+*.pyc
+native/VectorSuiteNative/plugin.pipl
 
 # L'SDK di Adobe Illustrator non si può ridistribuire: è coperto dalla licenza
 # che accompagna il download. Va scaricato da Adobe e messo qui a mano.

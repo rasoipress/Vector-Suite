@@ -1,12 +1,22 @@
+#if defined(__APPLE__)
 #import <Foundation/Foundation.h>
+#endif
 
 #include "IllustratorSDK.h"
 #include "SDKErrors.h"
 #include "AppContext.hpp"
+#include "AICommandManager.h"
+#include "AIMenuCommandString.h"
+#include "actions/AIDocumentAction.h"
 
 #include "VectorSuitePlugin.h"
+#include "VectorSuiteProjection.h"
 
+#include <algorithm>
+#include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <system_error>
 
 namespace {
 
@@ -68,11 +78,15 @@ VectorSuitePlugin::VectorSuitePlugin(SPPluginRef pluginRef)
 	  fStartingPoint{0, 0},
 	  fEndPoint{0, 0},
 	  oldAnnotatorRect{0, 0, 0, 0},
+	  fGestureToolIndex(-1),
+	  fGestureActive(false),
 	  fAnnotatorHandle(nullptr),
 	  fShutdownApplicationNotifier(nullptr),
 	  fNotifySelectionChanged(nullptr),
 	  fResourceManagerHandle(nullptr),
-	  fLastFractalGroup(nullptr)
+	  fLastFractalGroup(nullptr),
+	  fAutoSaveTimer(nullptr),
+	  fApplicationShuttingDown(false)
 {
 	std::memset(fToolHandle, 0, sizeof(fToolHandle));
 	std::strncpy(fPluginName, kVectorSuitePluginName, kMaxStringLength);
@@ -126,11 +140,17 @@ ASErr VectorSuitePlugin::StartupPlugin(SPInterfaceMessage* message)
 	if (error) return error;
 	error = AddPanel(message);
 	if (error) return error;
-	return AddNotifier(message);
+	error = AddNotifier(message);
+	if (error) return error;
+	return AddAutoSaveTimer(message);
 }
 
 ASErr VectorSuitePlugin::ShutdownPlugin(SPInterfaceMessage* message)
 {
+	if (fAutoSaveTimer && sAITimer) {
+		sAITimer->SetTimerActive(fAutoSaveTimer, false);
+		fAutoSaveTimer = nullptr;
+	}
 	if (fPanelController) {
 		VSDestroyPanelController(fPanelController);
 		fPanelController = nullptr;
@@ -152,7 +172,13 @@ ASErr VectorSuitePlugin::ShutdownPlugin(SPInterfaceMessage* message)
 
 ASErr VectorSuitePlugin::Notify(AINotifierMessage* message)
 {
+	if(message->notifier==fSnapArtChanged||message->notifier==fSnapDocumentChanged||message->notifier==fNotifySelectionChanged)
+		fSnapGeometryDirty=true;
 	if (message->notifier == fShutdownApplicationNotifier) {
+		fApplicationShuttingDown = true;
+		if (fAutoSaveTimer && sAITimer) {
+			sAITimer->SetTimerActive(fAutoSaveTimer, false);
+		}
 		if (fResourceManagerHandle) {
 			ASErr error = sAIUser->DisposeCursorResourceMgr(fResourceManagerHandle);
 			fResourceManagerHandle = nullptr;
@@ -160,10 +186,23 @@ ASErr VectorSuitePlugin::Notify(AINotifierMessage* message)
 		}
 	}
 	else if (message->notifier == fNotifySelectionChanged && fAnnotatorHandle) {
+		// La selezione cambia anche mentre l'ultimo documento viene chiuso.
+		// In quella finestra GetDocumentViewBounds restituisce "no document";
+		// propagare l'errore fa aprire a Illustrator un messaggio modale e può
+		// sembrare che l'applicazione sia bloccata in uscita.
+		if (fApplicationShuttingDown || !sAIDocument) return kNoErr;
+		AIDocumentHandle document = nullptr;
+		ASErr error = sAIDocument->GetDocument(&document);
+		if (error || !document) return kNoErr;
+		AIBoolean exists = false;
+		error = sAIDocument->DocumentExists(document, &exists);
+		if (error || !exists) return kNoErr;
+
 		AIRealRect viewBounds = {0, 0, 0, 0};
-		ASErr error = sAIDocumentView->GetDocumentViewBounds(nullptr, &viewBounds);
-		if (!error) error = InvalidateRect(viewBounds);
-		return error;
+		error = sAIDocumentView->GetDocumentViewBounds(nullptr, &viewBounds);
+		if (error) return kNoErr;
+		(void)InvalidateRect(viewBounds);
+		return kNoErr;
 	}
 	return kNoErr;
 }
@@ -194,8 +233,8 @@ ASErr VectorSuitePlugin::GoMenuItem(AIMenuMessage* message)
 		AIBoolean shown = false;
 		ASErr error = sAIPanel->IsShown(fPanel, shown);
 		if (error) return error;
-		if (shown && !fPanelController) return ShowPanel(true, kVSSuiteCore);
-		return ShowPanel(!shown, kVSSuiteCore);
+		if (shown && !fPanelController) return ShowPanel(true, kVSPrecisionPen);
+		return ShowPanel(!shown, kVSPrecisionPen);
 	}
 	if (message->menuItem == fAboutPluginMenu) {
 		SDKAboutPluginsHelper helper;
@@ -222,6 +261,14 @@ ASErr VectorSuitePlugin::AddTools(SPInterfaceMessage* message)
 		data.darkIconResID = definition.iconResourceID;
 		data.iconType = ai::IconType::kSVG;
 
+		// Ogni strumento è un toolset a sé, tutti nello stesso gruppo.
+		//
+		// Prima erano tutti nello stesso toolset: nella palette occupavano un
+		// solo pulsante e per raggiungerli bisognava tenerlo premuto. Con un
+		// toolset per strumento ognuno ha il proprio slot, quindi compare
+		// singolarmente nell'editor della barra strumenti di Illustrator e si
+		// può trascinare dove si vuole. Il gruppo comune serve solo a tenerli
+		// vicini, separati dagli strumenti di serie.
 		if (index == 0) {
 			std::strncpy(firstToolName, definition.internalName, sizeof(firstToolName) - 1);
 			data.sameGroupAs = kNoTool;
@@ -230,15 +277,14 @@ ASErr VectorSuitePlugin::AddTools(SPInterfaceMessage* message)
 		else {
 			error = sAITool->GetToolNumberFromName(firstToolName, &data.sameGroupAs);
 			if (error) return error;
-			error = sAITool->GetToolNumberFromName(firstToolName, &data.sameToolsetAs);
-			if (error) return error;
+			data.sameToolsetAs = kNoTool;
 		}
 
 		error = sAITool->AddTool(
 			message->d.self,
 			definition.internalName,
 			data,
-			kToolWantsToTrackCursorOption,
+			kToolWantsToTrackCursorOption | kToolWantsHiddenToolOption,
 			&fToolHandle[index]);
 		if (error) return error;
 	}
@@ -327,6 +373,10 @@ ASErr VectorSuitePlugin::EnsurePanelController()
 		PanelGenerateFractal,
 		this);
 #endif
+	if (fPanelController) {
+		const ASErr configureError = ConfigureAutoSave(VSAutoSaveGet());
+		if (configureError) return configureError;
+	}
 	return fPanelController ? kNoErr : kCantHappenErr;
 }
 
@@ -388,11 +438,424 @@ bool VectorSuitePlugin::IsProjectionTool(int toolIndex) const
 
 void VectorSuitePlugin::ActivateModuleFromPanel(int moduleID)
 {
+	if (moduleID == kVSPanelNativeSnapPreferences) {
+		const void* acquiredSuite = nullptr;
+		ASErr error = sSPBasic->AcquireSuite(kAICommandManagerSuite,
+			kAICommandManagerSuiteVersion, &acquiredSuite);
+		const auto* commands = static_cast<const AICommandManagerSuite*>(acquiredSuite);
+		if (!error && commands) {
+			AICommandID command = 0;
+			error = commands->GetCommandIDFromName(kSnapPrefCommandStr, &command);
+			if (!error) error = sAIMenu->InvokeMenuAction(command);
+			sSPBasic->ReleaseSuite(kAICommandManagerSuite, kAICommandManagerSuiteVersion);
+		}
+		if (error && sAIUser) sAIUser->MessageAlert(ai::UnicodeString(
+			"Apri le preferenze di Illustrator > Guide sensibili per configurare gli snap."));
+		return;
+	}
+	if (moduleID == kVSPanelNativePen) {
+		sAITool->SetSelectedToolByName("Adobe Pen Tool");
+		return;
+	}
+	if (moduleID == kVSPanelProjectionGrid) {
+		sAIUndo->SetUndoRedoCmdTextUS(ai::UnicodeString("Annulla griglia"), ai::UnicodeString("Ripeti griglia"), ai::UnicodeString("Griglia assonometrica"));
+		if (CreateProjectionGuideGrid()) {
+			sAIUndo->UndoChanges();
+			sAIUser->MessageAlert(ai::UnicodeString("Impossibile creare la griglia. Verifica documento e livello attivo."));
+		}
+		return;
+	}
+	bool copyProjection = false;
+	int projectionCommand = moduleID;
+	const int possibleCopiedCommand =
+		projectionCommand - kVSPanelProjectionCopyOffset;
+	const bool copiedProject =
+		possibleCopiedCommand >= kVSPanelProjectionProjectBase &&
+		possibleCopiedCommand < kVSPanelProjectionProjectBase +
+			kVSPanelProjectionCommandCount;
+	const bool copiedUnproject =
+		possibleCopiedCommand >= kVSPanelProjectionUnprojectBase &&
+		possibleCopiedCommand < kVSPanelProjectionUnprojectBase +
+			kVSPanelProjectionCommandCount;
+	const bool copiedMove =
+		possibleCopiedCommand >= kVSPanelProjectionMoveBase &&
+		possibleCopiedCommand < kVSPanelProjectionMoveBase +
+			kVSPanelProjectionAxisCount;
+	const bool copiedPlaneTransform =
+		possibleCopiedCommand >= kVSPanelProjectionScale &&
+		possibleCopiedCommand <= kVSPanelProjectionShear;
+	if (copiedProject || copiedUnproject || copiedMove || copiedPlaneTransform) {
+		copyProjection = true;
+		projectionCommand = possibleCopiedCommand;
+	}
+	const bool projectsSelection =
+		projectionCommand >= kVSPanelProjectionProjectBase &&
+		projectionCommand < kVSPanelProjectionProjectBase +
+			kVSPanelProjectionCommandCount;
+	const bool unprojectsSelection =
+		projectionCommand >= kVSPanelProjectionUnprojectBase &&
+		projectionCommand < kVSPanelProjectionUnprojectBase +
+			kVSPanelProjectionCommandCount;
+	if (projectsSelection || unprojectsSelection) {
+		const int base = projectsSelection
+			? kVSPanelProjectionProjectBase
+			: kVSPanelProjectionUnprojectBase;
+		sAIUndo->SetUndoRedoCmdTextUS(
+			ai::UnicodeString(projectsSelection
+				? "Annulla proiezione"
+				: "Annulla deproiezione"),
+			ai::UnicodeString(projectsSelection
+				? "Ripeti proiezione"
+				: "Ripeti deproiezione"),
+			ai::UnicodeString("Projection Studio"));
+		const ASErr error = TransformProjectionSelection(
+			projectionCommand - base,
+			unprojectsSelection,
+			copyProjection);
+		if (error && sAIUser) {
+			sAIUser->MessageAlert(ai::UnicodeString(
+				"Vector Suite: la trasformazione non è stata completata."));
+		}
+		return;
+	}
+	const bool movesSelection =
+		projectionCommand >= kVSPanelProjectionMoveBase &&
+		projectionCommand < kVSPanelProjectionMoveBase +
+			kVSPanelProjectionAxisCount;
+	const bool extrudesSelection =
+		projectionCommand >= kVSPanelProjectionExtrudeBase &&
+		projectionCommand < kVSPanelProjectionExtrudeBase +
+			kVSPanelProjectionAxisCount;
+	if (movesSelection || extrudesSelection) {
+		const int base = movesSelection
+			? kVSPanelProjectionMoveBase
+			: kVSPanelProjectionExtrudeBase;
+		sAIUndo->SetUndoRedoCmdTextUS(
+			ai::UnicodeString(movesSelection
+				? "Annulla spostamento assonometrico"
+				: "Annulla estrusione"),
+			ai::UnicodeString(movesSelection
+				? "Ripeti spostamento assonometrico"
+				: "Ripeti estrusione"),
+			ai::UnicodeString("Projection Studio"));
+		const VSProjectionSettings settings = VSProjectionGet();
+		const ASErr error = MoveOrExtrudeProjectionSelection(
+			projectionCommand - base,
+			settings.moveDistance,
+			extrudesSelection,
+			copyProjection);
+		if (error && sAIUser) {
+			sAIUser->MessageAlert(ai::UnicodeString(
+				"Vector Suite: l’operazione assonometrica non è stata completata."));
+		}
+		return;
+	}
+	if (projectionCommand == kVSPanelProjectionMeasure) {
+		const ASErr error = MeasureProjectionSelection();
+		if (error && sAIUser) {
+			sAIUser->MessageAlert(ai::UnicodeString(
+				"Vector Suite: la misurazione non è stata completata."));
+		}
+		return;
+	}
+	if (projectionCommand >= kVSPanelProjectionScale &&
+		projectionCommand <= kVSPanelProjectionShear) {
+		const char* undo = "Annulla trasformazione sul piano";
+		const char* redo = "Ripeti trasformazione sul piano";
+		if (projectionCommand == kVSPanelProjectionScale) {
+			undo = "Annulla scala sul piano";
+			redo = "Ripeti scala sul piano";
+		}
+		else if (projectionCommand == kVSPanelProjectionRotate) {
+			undo = "Annulla rotazione sul piano";
+			redo = "Ripeti rotazione sul piano";
+		}
+		else if (projectionCommand == kVSPanelProjectionShear) {
+			undo = "Annulla inclinazione sul piano";
+			redo = "Ripeti inclinazione sul piano";
+		}
+		sAIUndo->SetUndoRedoCmdTextUS(
+			ai::UnicodeString(undo),
+			ai::UnicodeString(redo),
+			ai::UnicodeString("Projection Studio"));
+		const ASErr error = TransformProjectionPlaneSelection(
+			projectionCommand,
+			copyProjection);
+		if (error && sAIUser) {
+			sAIUser->MessageAlert(ai::UnicodeString(
+				"Vector Suite: la trasformazione sul piano non è stata completata."));
+		}
+		return;
+	}
+
+	if (moduleID >= kVSPanelProjectionToolBase &&
+		moduleID < kVSPanelProjectionToolBase + kVSPanelProjectionToolCount) {
+		const int toolIndex = kVSToolProjectionLine +
+			(moduleID - kVSPanelProjectionToolBase);
+		if (fToolHandle[toolIndex]) sAITool->SetSelectedTool(fToolHandle[toolIndex]);
+		return;
+	}
+	if (moduleID >= kVSPanelSmartFindAppearance &&
+		moduleID <= kVSPanelSmartFindApplyStyle) {
+		if (moduleID == kVSPanelSmartFindApplyStyle) {
+			sAIUndo->SetUndoRedoCmdTextUS(
+				ai::UnicodeString("Annulla applicazione stile"),
+				ai::UnicodeString("Ripeti applicazione stile"),
+				ai::UnicodeString("Smart Find"));
+		}
+		const ASErr error = ExecuteSmartFindCommand(moduleID);
+		if (error && sAIUser) {
+			sAIUser->MessageAlert(ai::UnicodeString(
+				"Vector Suite: Smart Find non ha completato il comando."));
+		}
+		return;
+	}
+	if (moduleID == kVSPanelCollisionApply ||
+		moduleID == kVSPanelMirrorApply ||
+		moduleID == kVSPanelRandomizeApply) {
+		const char* moduleName = moduleID == kVSPanelCollisionApply
+			? "Collision Align"
+			: (moduleID == kVSPanelMirrorApply ? "Mirror Studio" : "Randomize");
+		sAIUndo->SetUndoRedoCmdTextUS(
+			ai::UnicodeString("Annulla trasformazione"),
+			ai::UnicodeString("Ripeti trasformazione"),
+			ai::UnicodeString(moduleName));
+		const ASErr error = ExecuteTransformCommand(moduleID);
+		if (error && sAIUser) {
+			sAIUser->MessageAlert(ai::UnicodeString(
+				"Vector Suite: la trasformazione non è stata completata."));
+		}
+		return;
+	}
+	if (moduleID == kVSPanelWidthApply ||
+		moduleID == kVSPanelLiveStyleApply ||
+		moduleID == kVSPanelColorApply) {
+		const char* moduleName = moduleID == kVSPanelWidthApply
+			? "Width Studio"
+			: (moduleID == kVSPanelLiveStyleApply ? "Live Style" : "Color Lab");
+		sAIUndo->SetUndoRedoCmdTextUS(
+			ai::UnicodeString("Annulla modifica stile"),
+			ai::UnicodeString("Ripeti modifica stile"),
+			ai::UnicodeString(moduleName));
+		const ASErr error = ExecuteStyleCommand(moduleID);
+		if (error && sAIUser) {
+			sAIUser->MessageAlert(ai::UnicodeString(
+				"Vector Suite: la modifica dello stile non è stata completata."));
+		}
+		return;
+	}
+	if (moduleID == kVSPanelAutoSaveConfigure ||
+		moduleID == kVSPanelAutoSaveNow) {
+		const ASErr error = ExecuteWorkflowCommand(moduleID);
+		if (error && sAIUser) {
+			sAIUser->MessageAlert(ai::UnicodeString(
+				"Vector Suite: Auto Save non ha completato il comando."));
+		}
+		return;
+	}
+	if (moduleID >= kVSPanelRasterSelect &&
+		moduleID <= kVSPanelRasterSetResolution) {
+		if (moduleID != kVSPanelRasterSelect) {
+			sAIUndo->SetUndoRedoCmdTextUS(
+				ai::UnicodeString("Annulla Raster Lab"),
+				ai::UnicodeString("Ripeti Raster Lab"),
+				ai::UnicodeString("Raster Lab"));
+		}
+		const ASErr error = ExecuteRasterCommand(moduleID);
+		if (error && sAIUser) {
+			sAIUser->MessageAlert(ai::UnicodeString(
+				"Vector Suite: Raster Lab non ha completato il comando."));
+		}
+		return;
+	}
+	if (moduleID >= kVSPanelPathSimplify && moduleID <= kVSPanelPathReverse) {
+		sAIUndo->SetUndoRedoCmdTextUS(
+			ai::UnicodeString("Annulla Path Studio"),
+			ai::UnicodeString("Ripeti Path Studio"),
+			ai::UnicodeString("Path Studio"));
+		const ASErr error = ExecutePathCommand(moduleID);
+		if (error && sAIUser) {
+			sAIUser->MessageAlert(ai::UnicodeString(
+				"Vector Suite: Path Studio non ha completato il comando."));
+		}
+		return;
+	}
+	if (moduleID >= kVSPanelPrecisionConfigure &&
+		moduleID <= kVSPanelInkConfigure) {
+		VSModuleID module = kVSPrecisionPen;
+		if (moduleID == kVSPanelFluidConfigure) module = kVSFluidSketch;
+		if (moduleID == kVSPanelInkConfigure) module = kVSInkStudio;
+		const int toolIndex = ToolIndexForModule(module);
+		if (toolIndex >= 0 && fToolHandle[toolIndex]) {
+			sAITool->SetSelectedTool(fToolHandle[toolIndex]);
+		}
+		return;
+	}
+	if (moduleID == kVSPanelTextureConfigure ||
+		moduleID == kVSPanelStippleConfigure) {
+		const VSModuleID module = moduleID == kVSPanelTextureConfigure
+			? kVSTextureLab
+			: kVSStippleLab;
+		const int toolIndex = ToolIndexForModule(module);
+		if (toolIndex >= 0 && fToolHandle[toolIndex]) {
+			sAITool->SetSelectedTool(fToolHandle[toolIndex]);
+		}
+		return;
+	}
+	if (moduleID == kVSPanelGeometryConfigure ||
+		moduleID == kVSPanelShapeConfigure) {
+		const VSModuleID module = moduleID == kVSPanelGeometryConfigure
+			? kVSGeometryLab
+			: kVSShapeReform;
+		const int toolIndex = ToolIndexForModule(module);
+		if (toolIndex >= 0 && fToolHandle[toolIndex]) {
+			sAITool->SetSelectedTool(fToolHandle[toolIndex]);
+		}
+		return;
+	}
+
 	if (moduleID < 0 || moduleID >= kVSModuleCount) return;
-	int toolIndex = ToolIndexForModule(static_cast<VSModuleID>(moduleID));
+	const VSModuleID module = static_cast<VSModuleID>(moduleID);
+	switch (module) {
+		case kVSVectorRepair:
+		{
+			if (module == kVSVectorRepair) {
+				sAIUndo->SetUndoRedoCmdTextUS(
+					ai::UnicodeString("Annulla Vector Repair"),
+					ai::UnicodeString("Ripeti Vector Repair"),
+					ai::UnicodeString("Vector Repair"));
+			}
+			const ASErr error = ExecuteModuleCommand(module);
+			if (error && sAIUser) {
+				sAIUser->MessageAlert(ai::UnicodeString(
+					"Vector Suite: il comando non è stato completato."));
+			}
+			return;
+		}
+		default:
+			break;
+	}
+	if (module == kVSSmartFind) return;
+
+	const int toolIndex = ToolIndexForModule(module);
 	if (toolIndex >= 0 && fToolHandle[toolIndex]) {
 		sAITool->SetSelectedTool(fToolHandle[toolIndex]);
 	}
+}
+
+ASErr VectorSuitePlugin::AddAutoSaveTimer(SPInterfaceMessage* message)
+{
+	if (!sAITimer) return kNoErr;
+	ASErr error = sAITimer->AddTimer(
+		message->d.self,
+		"Vector Suite Auto Save",
+		5 * 60 * kTicksPerSecond,
+		&fAutoSaveTimer);
+	if (error) return error;
+	return sAITimer->SetTimerActive(fAutoSaveTimer, false);
+}
+
+ASErr VectorSuitePlugin::ConfigureAutoSave(const VSAutoSaveSettings& rawSettings)
+{
+	if (!fAutoSaveTimer || !sAITimer) return kNoErr;
+	const VSAutoSaveSettings settings = VSSanitizeAutoSave(rawSettings);
+	ASErr error = sAITimer->SetTimerPeriod(
+		fAutoSaveTimer,
+		settings.intervalMinutes * 60 * kTicksPerSecond);
+	if (error) return error;
+	return sAITimer->SetTimerActive(fAutoSaveTimer, settings.enabled != 0);
+}
+
+ASErr VectorSuitePlugin::CreateAutoSaveVersionCopy()
+{
+	ai::FilePath documentFile;
+	ASErr error = sAIDocument->GetDocumentFileSpecification(documentFile);
+	if (error || documentFile.IsEmpty()) return error;
+
+	try {
+		const std::filesystem::path source = std::filesystem::u8path(
+			documentFile.GetFullPath().as_UTF8());
+		if (!std::filesystem::is_regular_file(source)) return kNoErr;
+		const std::filesystem::path backupDirectory =
+			source.parent_path() / "Vector Suite Backups";
+		std::filesystem::create_directories(backupDirectory);
+		const std::uint64_t timestamp = static_cast<std::uint64_t>(
+			std::chrono::duration_cast<std::chrono::seconds>(
+				std::chrono::system_clock::now().time_since_epoch()).count());
+		std::string extension = source.extension().string();
+		if (!extension.empty() && extension.front() == '.') extension.erase(0, 1);
+		const std::filesystem::path destination = backupDirectory /
+			std::filesystem::u8path(VSBackupFileName(
+				source.stem().string(),
+				extension,
+				timestamp));
+		std::filesystem::copy_file(
+			source,
+			destination,
+			std::filesystem::copy_options::overwrite_existing);
+	}
+	catch (const std::filesystem::filesystem_error&) {
+		return kCantHappenErr;
+	}
+	return kNoErr;
+}
+
+ASErr VectorSuitePlugin::PerformAutoSave(AIBoolean interactive)
+{
+	if (fApplicationShuttingDown || !sAIDocument || !sAIActionManager) return kNoErr;
+	AIDocumentHandle document = nullptr;
+	ASErr error = sAIDocument->GetDocument(&document);
+	if (error || !document) return kNoErr;
+	AIBoolean exists = false;
+	error = sAIDocument->DocumentExists(document, &exists);
+	if (error || !exists) return kNoErr;
+
+	const VSAutoSaveSettings settings = VSAutoSaveGet();
+	if (!interactive && settings.modifiedOnly) {
+		AIBoolean modified = false;
+		error = sAIDocument->GetDocumentModified(&modified);
+		if (error || !modified) return error;
+	}
+
+	ai::FilePath documentFile;
+	error = sAIDocument->GetDocumentFileSpecification(documentFile);
+	if (error || documentFile.IsEmpty()) {
+		if (!interactive) return kNoErr;
+		return sAIActionManager->PlayActionEvent(
+			kAISaveDocumentAction,
+			kDialogOn,
+			nullptr);
+	}
+
+	error = sAIActionManager->PlayActionEvent(
+		kAISaveDocumentAction,
+		kDialogOff,
+		nullptr);
+	if (!error && settings.createVersionCopy) {
+		error = CreateAutoSaveVersionCopy();
+	}
+	return error;
+}
+
+ASErr VectorSuitePlugin::ExecuteWorkflowCommand(int command)
+{
+	switch (command) {
+		case kVSPanelAutoSaveConfigure:
+			return ConfigureAutoSave(VSAutoSaveGet());
+		case kVSPanelAutoSaveNow:
+			return PerformAutoSave(true);
+		default:
+			return kBadParameterErr;
+	}
+}
+
+ASErr VectorSuitePlugin::GoTimer(AITimerMessage* message)
+{
+	if (!message || message->timer != fAutoSaveTimer) return kNoErr;
+	if (fApplicationShuttingDown) return kNoErr;
+	const VSAutoSaveSettings settings = VSAutoSaveGet();
+	if (!settings.enabled) return kNoErr;
+	return PerformAutoSave(false);
 }
 
 ASErr VectorSuitePlugin::SelectTool(AIToolMessage* message)
@@ -418,8 +881,73 @@ ASErr VectorSuitePlugin::SelectTool(AIToolMessage* message)
 ASErr VectorSuitePlugin::TrackToolCursor(AIToolMessage* message)
 {
 	const int index = ToolIndex(message->tool);
-	if (index < 0 || !sAIUser) return kNoErr;
-	return sAIUser->SetSVGCursor(kVSTools[index].iconResourceID, fResourceManagerHandle);
+	if (index < 0) return kNoErr;
+
+	// Track() non serve soltanto a correggere la coordinata: è anche il punto
+	// d'ingresso con cui Illustrator mostra Smart Guides, snap a punti, griglia
+	// e bordi tavola per un tool di terze parti. Chiamarlo durante il semplice
+	// movimento del cursore ripristina quindi le annotazioni prima del drag.
+	AIRealPoint ignored = message->cursor;
+	SnapCursor(message, ignored);
+	return sAIUser
+		? sAIUser->SetSVGCursor(kVSTools[index].iconResourceID, fResourceManagerHandle)
+		: kNoErr;
+}
+
+ASErr VectorSuitePlugin::SnapCursor(
+	AIToolMessage* message,
+	AIRealPoint& snappedPoint)
+{
+	fHasCustomSnap = false;
+	if (!message || !message->event || !sAICursorSnap || !sAIDocumentView) {
+		return kNoErr;
+	}
+
+	AIDocumentViewHandle view = nullptr;
+	if (sAIDocumentView->GetNthDocumentView(0, &view) != kNoErr || !view) {
+		return kNoErr;
+	}
+
+	AIRealPoint candidate = message->cursor;
+	const VSSnap::Settings settings = VSSnapGet();
+	if (settings.enabled) {
+		AIDocumentHandle document=nullptr;
+		if(sAIDocument)sAIDocument->GetDocument(&document);
+		if (!fGestureActive&&(fSnapGeometryDirty||document!=fSnapDocument||settings.modes!=fSnapGeometryModes)) {
+			RefreshSnapGeometry();fSnapGeometryDirty=false;
+			fSnapDocument=document;fSnapGeometryModes=settings.modes;
+		}
+		AIReal zoom=1;
+		if (sAIDocumentView->GetDocumentViewZoom(view,&zoom)) zoom=1;
+		const VSSnap::Point origin={fStartingPoint.h,fStartingPoint.v};
+		const bool shift=(message->event->modifiers & aiEventModifiers_shiftKey)!=0;
+		const auto hit=VSSnap::find(fSnapGeometry,{candidate.h,candidate.v},
+			fGestureActive?&origin:nullptr,settings,zoom,shift);
+		if (hit.found) {
+			ai::AutoBuffer<AICursorConstraint> constraints(1);
+			constraints[0]=AICursorConstraint(kPointConstraint,0,{hit.point.x,hit.point.y},0,
+				ai::UnicodeString(VSSnap::label(hit.mode)),nullptr);
+			if (!sAICursorSnap->SetCustom(constraints)) {
+				sAICursorSnap->Track(view,message->cursor,message->event,"T v",&candidate);
+			}
+			snappedPoint={hit.point.x,hit.point.y};
+			fHasCustomSnap=true;
+			return kNoErr;
+		}
+	}
+	sAICursorSnap->ClearCustom();
+	const ASErr error = sAICursorSnap->Track(
+		view,
+		message->cursor,
+		message->event,
+		"ATFPLMG v i o",
+		&candidate);
+	if (!error) snappedPoint = candidate;
+
+	// Lo snap è un aiuto, non deve mai rendere inutilizzabile lo strumento se
+	// una vista sta cambiando o Illustrator non ha ancora inizializzato le
+	// Smart Guides del documento.
+	return kNoErr;
 }
 
 ASErr VectorSuitePlugin::ToolMouseDown(AIToolMessage* message)
@@ -431,18 +959,30 @@ ASErr VectorSuitePlugin::ToolMouseDown(AIToolMessage* message)
 		index == kVSToolFractalGrove) {
 		return kNoErr;
 	}
+	if (sAICursorSnap) sAICursorSnap->Reset();
+	fGestureActive = false;
+	fSnapGeometryDirty = true;
 	fStartingPoint = message->cursor;
-	fEndPoint = message->cursor;
+	SnapCursor(message, fStartingPoint);
+	fEndPoint = fStartingPoint;
 	fGesturePoints.clear();
-	fGesturePoints.push_back(message->cursor);
-	return IsProjectionTool(index)
+	fGesturePoints.push_back(fStartingPoint);
+	fGestureToolIndex = index;
+	fGestureActive = true;
+	ASErr error = IsProjectionTool(index)
 		? sAIAnnotator->SetAnnotatorActive(fAnnotatorHandle, true)
 		: BeginModuleGesture(message, index);
+	if (error) {
+		fGestureActive = false;
+		fGestureToolIndex = -1;
+	}
+	return error;
 }
 
 ASErr VectorSuitePlugin::ToolMouseDrag(AIToolMessage* message)
 {
 	const int index = ToolIndex(message->tool);
+	if (!fGestureActive || index != fGestureToolIndex) return kNoErr;
 	if (index < 0 ||
 		index == kVSToolSuiteCore ||
 		index == kVSToolDirectSettings ||
@@ -463,10 +1003,29 @@ ASErr VectorSuitePlugin::ToolMouseUp(AIToolMessage* message)
 		index == kVSToolFractalGrove) {
 		return kNoErr;
 	}
-	if (IsProjectionTool(index)) {
-		return sAIAnnotator->SetAnnotatorActive(fAnnotatorHandle, false);
+	const ASErr invalidationError = InvalidateRect(oldAnnotatorRect);
+	fGestureActive = false;
+	fGestureToolIndex = -1;
+	ASErr error = IsProjectionTool(index)
+		? sAIAnnotator->SetAnnotatorActive(fAnnotatorHandle, false)
+		: EndModuleGesture(message, index);
+	if (!error) error = invalidationError;
+	if (sAICursorSnap) {
+		const ASErr resetError = sAICursorSnap->Reset();
+		if (!error) error = resetError;
 	}
-	return EndModuleGesture(message, index);
+	return error;
+}
+
+ASErr VectorSuitePlugin::DeselectTool(AIToolMessage* message)
+{
+	fGestureActive=false;
+	fGestureToolIndex=-1;
+	fSnapGeometry={};
+	fSnapGeometryDirty=true;
+	fHasCustomSnap=false;
+	if (sAICursorSnap) sAICursorSnap->ClearCustom();
+	return Plugin::DeselectTool(message);
 }
 
 ASErr VectorSuitePlugin::AddNotifier(SPInterfaceMessage* message)
@@ -478,11 +1037,15 @@ ASErr VectorSuitePlugin::AddNotifier(SPInterfaceMessage* message)
 		&fShutdownApplicationNotifier);
 	if (error) return error;
 
-	return sAINotifier->AddNotifier(
+	error = sAINotifier->AddNotifier(
 		fPluginRef,
 		"Vector Suite Selection",
 		kAIArtSelectionChangedNotifier,
 		&fNotifySelectionChanged);
+	if(error)return error;
+	error=sAINotifier->AddNotifier(fPluginRef,"Vector Suite Snap Art",kAIArtObjectsChangedNotifier,&fSnapArtChanged);
+	if(error)return error;
+	return sAINotifier->AddNotifier(fPluginRef,"Vector Suite Snap Document",kAIDocumentChangedNotifier,&fSnapDocumentChanged);
 }
 
 ASErr VectorSuitePlugin::AddAnnotator(SPInterfaceMessage* message)
@@ -497,8 +1060,12 @@ ASErr VectorSuitePlugin::AddAnnotator(SPInterfaceMessage* message)
 
 ASErr VectorSuitePlugin::DrawAnnotator(AIAnnotatorMessage* message)
 {
+	AIRect moduleBounds = {0, 0, 0, 0};
+	ASErr error = DrawModuleAnnotation(message, moduleBounds);
+	if (error) return error;
+
 	ai::UnicodeString pointString;
-	ASErr error = GetPointString(fEndPoint, pointString);
+	error = GetPointString(fEndPoint, pointString);
 	if (error) return error;
 
 	AIPoint point;
@@ -535,7 +1102,17 @@ ASErr VectorSuitePlugin::DrawAnnotator(AIAnnotatorMessage* message)
 		kAIMiddle,
 		bounds,
 		false);
-	if (!error) oldAnnotatorRect = bounds;
+	if (!error) {
+		const bool hasModuleBounds =
+			moduleBounds.left != moduleBounds.right || moduleBounds.top != moduleBounds.bottom;
+		if (hasModuleBounds) {
+			bounds.left = std::min(bounds.left, moduleBounds.left);
+			bounds.top = std::min(bounds.top, moduleBounds.top);
+			bounds.right = std::max(bounds.right, moduleBounds.right);
+			bounds.bottom = std::max(bounds.bottom, moduleBounds.bottom);
+		}
+		oldAnnotatorRect = bounds;
+	}
 	return error;
 }
 

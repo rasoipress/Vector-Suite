@@ -368,6 +368,17 @@ MODULE_ORDER = [
     "fractal-grove",
 ]
 
+# Il pannello compatto di Illustrator riusa la risorsa di Suite Core. La card
+# nell'app conserva il proprio glifo, mentre la risorsa nativa mostra il vero
+# marchio Vector Suite in versione monocromatica e leggibile a 16–24 pt.
+PANEL_MARK_ICON = (
+    '<path d="M12 2.5 21 7.7v10.4L12 23.3 3 18.1V7.7Z"/>'
+    '<path d="M12 12.9 21 7.7M12 12.9 3 7.7M12 12.9v10.4"/>'
+    '<path d="M7.25 15.65 12 12.9l4.75 2.75"/>'
+    '<circle cx="7.25" cy="15.65" r="1.25" fill="#ffffff"/>'
+    '<circle cx="16.75" cy="15.65" r="1.25" fill="#ffffff"/>'
+)
+
 
 def solidify(fragment):
     """Traduce `class="fill-on"` in attributi espliciti.
@@ -432,7 +443,8 @@ def targets():
     raw = ROOT / "native/VectorSuiteNative/Resources/raw"
     files = {ROOT / "Resources/ui/icons.js": icons_js()}
     for key in MODULE_ORDER:
-        files[raw / ("VSIcon-%s.svg" % key)] = plugin_icon(MODULE_ICONS[key])
+        fragment = PANEL_MARK_ICON if key == "suite-core" else MODULE_ICONS[key]
+        files[raw / ("VSIcon-%s.svg" % key)] = plugin_icon(fragment)
     return files
 
 

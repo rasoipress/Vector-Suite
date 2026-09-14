@@ -40,6 +40,8 @@ protected:
 	ASErr ToolMouseUp(AIToolMessage* message) override;
 	ASErr ToolMouseDrag(AIToolMessage* message) override;
 	ASErr SelectTool(AIToolMessage* message) override;
+	ASErr DeselectTool(AIToolMessage* message) override;
+	ASErr GoTimer(AITimerMessage* message) override;
 
 private:
 	AIMenuItemHandle fAboutPluginMenu;
@@ -53,12 +55,24 @@ private:
 	AIRealPoint fStartingPoint;
 	AIRealPoint fEndPoint;
 	AIRect oldAnnotatorRect;
+	int fGestureToolIndex;
+	bool fGestureActive;
 	AIAnnotatorHandle fAnnotatorHandle;
 	AINotifierHandle fShutdownApplicationNotifier;
 	AINotifierHandle fNotifySelectionChanged;
 	AIResourceManagerHandle fResourceManagerHandle;
 	AIArtHandle fLastFractalGroup;
+	AITimerHandle fAutoSaveTimer;
+	bool fApplicationShuttingDown;
 	std::vector<AIRealPoint> fGesturePoints;
+	VSSnap::Geometry fSnapGeometry;
+	bool fHasCustomSnap = false;
+	bool fSnapGeometryDirty = true;
+	unsigned fSnapGeometryModes = 0;
+	AIDocumentHandle fSnapDocument = nullptr;
+	AINotifierHandle fSnapArtChanged = nullptr;
+	AINotifierHandle fSnapDocumentChanged = nullptr;
+	void RefreshSnapGeometry();
 
 	ASErr AddTools(SPInterfaceMessage* message);
 	ASErr AddMenus(SPInterfaceMessage* message);
@@ -66,19 +80,43 @@ private:
 	ASErr EnsurePanelController();
 	ASErr AddAnnotator(SPInterfaceMessage* message);
 	ASErr AddNotifier(SPInterfaceMessage* message);
+	ASErr AddAutoSaveTimer(SPInterfaceMessage* message);
 	ASErr ShowPanel(AIBoolean show, VSModuleID selectedModule);
 	ASErr CreateProjectionArt(AIToolMessage* message);
+	ASErr TransformProjectionSelection(
+		int target,
+		AIBoolean inverse,
+		AIBoolean copy);
+	ASErr MoveOrExtrudeProjectionSelection(
+		int axis,
+		AIReal distance,
+		AIBoolean extrude,
+		AIBoolean copy);
+	ASErr TransformProjectionPlaneSelection(int operation, AIBoolean copy);
+	ASErr MeasureProjectionSelection();
+	ASErr CreateProjectionGuideGrid();
 	ASErr BeginModuleGesture(AIToolMessage* message, int toolIndex);
 	ASErr ContinueModuleGesture(AIToolMessage* message, int toolIndex);
 	ASErr EndModuleGesture(AIToolMessage* message, int toolIndex);
 	ASErr ExecuteModuleCommand(VSModuleID module);
+	ASErr ExecuteSmartFindCommand(int command);
+	ASErr ExecuteTransformCommand(int command);
+	ASErr ExecuteStyleCommand(int command);
+	ASErr ExecuteWorkflowCommand(int command);
+	ASErr ExecuteRasterCommand(int command);
+	ASErr ExecutePathCommand(int command);
+	ASErr ConfigureAutoSave(const VSAutoSaveSettings& settings);
+	ASErr PerformAutoSave(AIBoolean interactive);
+	ASErr CreateAutoSaveVersionCopy();
 	ASErr DrawAnnotator(AIAnnotatorMessage* message);
+	ASErr DrawModuleAnnotation(AIAnnotatorMessage* message, AIRect& bounds);
 	ASErr InvalAnnotator(AIAnnotatorMessage* message);
 	ASErr GetPointString(const AIRealPoint& point, ai::UnicodeString& pointStr);
 	ASErr PostStartupPlugin() override;
 	ASErr ArtworkBoundsToViewBounds(const AIRealRect& artworkBounds, AIRect& viewBounds);
 	ASErr InvalidateRect(const AIRealRect& invalRealRect);
 	ASErr InvalidateRect(const AIRect& invalRect);
+	ASErr SnapCursor(AIToolMessage* message, AIRealPoint& snappedPoint);
 
 	int ToolIndex(AIToolHandle handle) const;
 	int ToolIndexForModule(VSModuleID module) const;

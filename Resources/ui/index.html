@@ -22,7 +22,20 @@
         <nav id="categories" aria-label="Categorie"></nav>
 
         <div class="sidebar-footer">
-          <p class="eyebrow">Plug-in</p>
+          <div class="install-box" id="installBox">
+            <div class="install-head">
+              <span class="install-mark" id="installMark" aria-hidden="true"></span>
+              <div>
+                <strong id="installTitle">Installa tutto</strong>
+                <small id="installDetail">I 22 moduli in un solo bundle</small>
+              </div>
+            </div>
+            <button class="primary" data-native="installIntoIllustrator"
+                    id="installButton">Installa in Illustrator</button>
+            <p class="install-note" id="installNote">Chiudi Illustrator prima di installare.</p>
+          </div>
+
+          <p class="eyebrow">Cartella plug-in</p>
           <div class="status-line">
             <i id="globalDot" aria-hidden="true"></i>
             <span id="detectedLabel">Scansione…</span>

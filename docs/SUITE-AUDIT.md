@@ -10,8 +10,8 @@ studio.vectorsuite.plugin.core
 ```
 
 Il bundle è compilato come universal binary `arm64` + `x86_64`, contiene un
-pannello AppKit nativo e registra un gruppo unico nella toolbar di Illustrator.
-Le 25 icone SVG sono originali e monocromatiche, costruite su una griglia 24×24
+pannello AppKit nativo e registra 25 strumenti interni nascosti dalla toolbar
+di Illustrator. Le 25 icone SVG sono originali e monocromatiche, costruite su una griglia 24×24
 con tratto 1.5 e generate dalla stessa sorgente delle icone dell'app di
 gestione (`scripts/generate-assets.py`), su tela 44×36 come richiede
 Illustrator per le icone degli strumenti.
@@ -46,8 +46,8 @@ Illustrator per le icone degli strumenti.
 ## Superfici in Illustrator
 
 - `Finestra > Vector Suite`: pannello nativo completo.
-- Gruppo `Vector Suite` nella toolbar: accesso a tutti gli strumenti.
-- Editor toolbar di Illustrator: inserimento individuale dei 25 strumenti.
+- Nessuna icona Vector Suite nella toolbar: gli strumenti si attivano dal
+  pannello senza occupare la barra strumenti.
 - Tema: colori dinamici di sistema; le icone sono ricolorate al volo sul colore
   della pastiglia, così seguono il tema chiaro o scuro.
 - Controlli: cursori, caselle, selettore a segmenti e pulsante principale sono

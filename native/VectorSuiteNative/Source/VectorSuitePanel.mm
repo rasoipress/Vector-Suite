@@ -12,6 +12,7 @@
 
 #include "VectorSuiteCatalog.h"
 #include "VectorSuitePanel.h"
+#include "VectorSuiteProjection.h"
 
 #include <cmath>
 
@@ -79,6 +80,38 @@ NSTextField* VSEyebrow(NSString* text)
 }  // namespace
 
 #pragma mark - Marchio
+
+@interface VSNumericField : NSTextField
+@property(nonatomic) CGFloat wheelRemainder;
+@end
+@implementation VSNumericField
+- (void)scrollWheel:(NSEvent*)event
+{
+	NSText* editor = self.currentEditor;
+	NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+	if (!self.enabled || !editor || self.window.firstResponder != editor || !NSPointInRect(point, self.bounds)) {
+		[super scrollWheel:event]; return;
+	}
+	if (event.momentumPhase != NSEventPhaseNone) return;
+	CGFloat delta = event.scrollingDeltaY;
+	if (event.isDirectionInvertedFromDevice) delta = -delta;
+	if (event.phase == NSEventPhaseBegan) self.wheelRemainder = 0;
+	self.wheelRemainder += event.hasPreciseScrollingDeltas ? delta / 8.0 : delta;
+	NSInteger steps = (NSInteger)self.wheelRemainder;
+	if (!steps) return;
+	self.wheelRemainder -= steps;
+	double increment = (event.modifierFlags & NSEventModifierFlagOption) ? 0.1 : 1.0;
+	if (event.modifierFlags & NSEventModifierFlagShift) increment *= 10.0;
+	NSScanner* scanner = [NSScanner scannerWithString:[editor.string stringByReplacingOccurrencesOfString:@"," withString:@"."]];
+	double value = 0;
+	if (![scanner scanDouble:&value] || !scanner.isAtEnd || !std::isfinite(value)) return;
+	self.stringValue = [NSString stringWithFormat:@"%.6g", value + steps * increment];
+	editor.string = self.stringValue;
+	if (self.action) [self sendAction:self.action to:self.target];
+	editor.string = self.stringValue;
+	[[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidEndEditingNotification object:self];
+}
+@end
 
 // Ricalco del marchio disegnato in Resources/VectorSuiteLogo.svg: cubo
 // isometrico con le tre facce separate dalle fenditure, e sul vertice centrale
@@ -371,9 +404,12 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 
 - (NSRect)knobRectFlipped:(BOOL)flipped
 {
+	// Il cursore è una barretta verticale, non un pomello tondo: si legge come
+	// una tacca su una scala e non lascia dubbi su dove cade il valore.
 	NSRect knob = [super knobRectFlipped:flipped];
-	const CGFloat side = 12.0;
-	return NSMakeRect(NSMidX(knob) - side * 0.5, NSMidY(knob) - side * 0.5, side, side);
+	const CGFloat width = 3.0;
+	const CGFloat height = 14.0;
+	return NSMakeRect(NSMidX(knob) - width * 0.5, NSMidY(knob) - height * 0.5, width, height);
 }
 
 - (void)drawBarInside:(NSRect)rect flipped:(BOOL)flipped
@@ -400,12 +436,14 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 
 - (void)drawKnob:(NSRect)knobRect
 {
-	NSBezierPath* knob = [NSBezierPath bezierPathWithOvalInRect:NSInsetRect(knobRect, 1.0, 1.0)];
+	// Un filo di carta attorno alla barretta la stacca dalla traccia piena
+	// anche quando il cursore è tutto a destra.
+	NSRect halo = NSInsetRect(knobRect, -1.5, -1.5);
 	[VSPaper() setFill];
-	[knob fill];
-	[VSInk() setStroke];
-	knob.lineWidth = 1.5;
-	[knob stroke];
+	[[NSBezierPath bezierPathWithRoundedRect:halo xRadius:2.5 yRadius:2.5] fill];
+
+	[VSInk() setFill];
+	[[NSBezierPath bezierPathWithRoundedRect:knobRect xRadius:1.5 yRadius:1.5] fill];
 }
 
 @end
@@ -678,6 +716,36 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 @property(nonatomic, strong) NSButton* groupToggle;
 @property(nonatomic, strong) NSButton* replaceToggle;
 @property(nonatomic, strong) NSTextField* fractalStatus;
+@property(nonatomic, strong) NSMutableDictionary<NSString*, NSSlider*>* projectionSliders;
+@property(nonatomic, strong) NSMutableDictionary<NSString*, NSTextField*>* projectionValues;
+@property(nonatomic, strong) VSSegmentedControl* projectionTool;
+@property(nonatomic, strong) VSSegmentedControl* projectionPreset;
+@property(nonatomic, strong) VSSegmentedControl* projectionPlane;
+@property(nonatomic, strong) VSSegmentedControl* projectionTarget;
+@property(nonatomic, strong) VSSegmentedControl* projectionMoveAxis;
+@property(nonatomic, strong) NSButton* projectionSnap;
+@property(nonatomic, strong) NSButton* projectionKeepOriginal;
+@property(nonatomic, strong) NSMutableDictionary<NSString*, NSTextField*>* transformFields;
+@property(nonatomic, strong) VSSegmentedControl* randomDistribution;
+@property(nonatomic, strong) NSButton* randomUniformScale;
+@property(nonatomic, strong) VSSegmentedControl* mirrorMode;
+@property(nonatomic, strong) VSSegmentedControl* collisionDirection;
+@property(nonatomic, strong) NSButton* collisionAlignCenters;
+@property(nonatomic, strong) VSSegmentedControl* widthMode;
+@property(nonatomic, strong) VSSegmentedControl* widthCap;
+@property(nonatomic, strong) VSSegmentedControl* widthJoin;
+@property(nonatomic, strong) VSSegmentedControl* liveBlendMode;
+@property(nonatomic, strong) NSArray<NSNumber*>* liveBlendValues;
+@property(nonatomic, strong) NSButton* liveIsolated;
+@property(nonatomic, strong) NSButton* autoSaveEnabled;
+@property(nonatomic, strong) NSButton* autoSaveModifiedOnly;
+@property(nonatomic, strong) NSButton* autoSaveVersions;
+@property(nonatomic, strong) VSSegmentedControl* rasterResampling;
+@property(nonatomic, strong) NSButton* pathPreserveCurves;
+@property(nonatomic, strong) NSButton* fluidClosePath;
+@property(nonatomic, strong) NSButton* textureCrosshatch;
+@property(nonatomic, strong) VSSegmentedControl* geometryMode;
+@property(nonatomic, strong) NSButton* shapePreserveHandles;
 @property(nonatomic, assign) NSInteger selectedModule;
 @end
 
@@ -694,7 +762,7 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 		_activateTool = activateTool;
 		_generateFractal = generateFractal;
 		_callbackContext = context;
-		_selectedModule = kVSSuiteCore;
+		_selectedModule = kVSPrecisionPen;
 		_moduleButtons = [NSMutableDictionary dictionary];
 		_glyphCache = [NSMutableDictionary dictionary];
 
@@ -710,6 +778,40 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 			[validatedOrder addObject:@(moduleID)];
 		}
 		_moduleOrder = [validatedOrder.array mutableCopy];
+
+		// Le impostazioni di proiezione vivono in memoria dentro il plug-in:
+		// qui vengono ripristinate dalle preferenze all'apertura del pannello.
+		VSProjectionSettings projection = VSProjectionDefaults();
+		NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+		if ([defaults objectForKey:@"studio.vectorsuite.projection.leftAngle"]) {
+			projection.leftAngle = [defaults doubleForKey:@"studio.vectorsuite.projection.leftAngle"];
+			projection.rightAngle = [defaults doubleForKey:@"studio.vectorsuite.projection.rightAngle"];
+			projection.plane = (int)[defaults integerForKey:@"studio.vectorsuite.projection.plane"];
+			projection.snapLine = [defaults boolForKey:@"studio.vectorsuite.projection.snapLine"] ? 1 : 0;
+			if ([defaults objectForKey:@"studio.vectorsuite.projection.moveDistance"]) {
+				projection.moveDistance = [defaults
+					doubleForKey:@"studio.vectorsuite.projection.moveDistance"];
+				projection.moveAxis = (int)[defaults
+					integerForKey:@"studio.vectorsuite.projection.moveAxis"];
+			}
+			if ([defaults objectForKey:@"studio.vectorsuite.projection.scaleU"]) {
+				projection.scaleU = [defaults doubleForKey:@"studio.vectorsuite.projection.scaleU"];
+				projection.scaleV = [defaults doubleForKey:@"studio.vectorsuite.projection.scaleV"];
+				projection.rotation = [defaults doubleForKey:@"studio.vectorsuite.projection.rotation"];
+				projection.shear = [defaults doubleForKey:@"studio.vectorsuite.projection.shear"];
+			}
+		}
+		VSProjectionSet(&projection);
+
+		VSAutoSaveSettings autoSave = VSAutoSaveDefaults();
+		if ([defaults objectForKey:@"studio.vectorsuite.autoSave.enabled"]) {
+			autoSave.enabled = [defaults boolForKey:@"studio.vectorsuite.autoSave.enabled"] ? 1 : 0;
+			autoSave.intervalMinutes = (int)[defaults integerForKey:@"studio.vectorsuite.autoSave.intervalMinutes"];
+			autoSave.modifiedOnly = [defaults boolForKey:@"studio.vectorsuite.autoSave.modifiedOnly"] ? 1 : 0;
+			autoSave.createVersionCopy = [defaults boolForKey:@"studio.vectorsuite.autoSave.createVersionCopy"] ? 1 : 0;
+		}
+		autoSave = VSSanitizeAutoSave(autoSave);
+		VSAutoSaveSet(&autoSave);
 	}
 	return self;
 }
@@ -974,7 +1076,7 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 	[slider.heightAnchor constraintEqualToConstant:18].active = YES;
 	[row addArrangedSubview:slider];
 
-	NSTextField* valueField = [[NSTextField alloc] initWithFrame:NSZeroRect];
+	NSTextField* valueField = [[VSNumericField alloc] initWithFrame:NSZeroRect];
 	valueField.identifier = key;
 	valueField.stringValue = [self formattedFractalValue:value specification:specification];
 	valueField.alignment = NSTextAlignmentRight;
@@ -1221,7 +1323,2045 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 	[self generateFractalNow];
 }
 
+#pragma mark Projection Studio
+
+// I parametri elementari del disegno assonometrico: i due angoli degli assi
+// orizzontali, la faccia su cui cade la forma, e se la linea si aggancia agli
+// assi. Con angoli uguali si ha l'isometrica, con angoli diversi la dimetrica o
+// la trimetrica.
+
+- (NSString*)projectionPreferenceKey:(NSString*)key
+{
+	return [@"studio.vectorsuite.projection." stringByAppendingString:key];
+}
+
+- (NSInteger)projectionToolSelection
+{
+	NSInteger tool = [NSUserDefaults.standardUserDefaults
+		integerForKey:[self projectionPreferenceKey:@"tool"]];
+	if (tool < 0 || tool >= kVSPanelProjectionToolCount) tool = 0;
+	return tool;
+}
+
+- (NSInteger)projectionTargetSelection
+{
+	NSInteger target = [NSUserDefaults.standardUserDefaults
+		integerForKey:[self projectionPreferenceKey:@"target"]];
+	if (target < 0 || target >= kVSPanelProjectionCommandCount) target = 0;
+	return target;
+}
+
+- (void)storeProjection:(VSProjectionSettings)settings
+{
+	VSProjectionSet(&settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.leftAngle forKey:[self projectionPreferenceKey:@"leftAngle"]];
+	[defaults setDouble:settings.rightAngle forKey:[self projectionPreferenceKey:@"rightAngle"]];
+	[defaults setInteger:settings.plane forKey:[self projectionPreferenceKey:@"plane"]];
+	[defaults setBool:settings.snapLine != 0 forKey:[self projectionPreferenceKey:@"snapLine"]];
+	[defaults setDouble:settings.moveDistance
+				 forKey:[self projectionPreferenceKey:@"moveDistance"]];
+	[defaults setInteger:settings.moveAxis
+				  forKey:[self projectionPreferenceKey:@"moveAxis"]];
+	[defaults setDouble:settings.scaleU
+				 forKey:[self projectionPreferenceKey:@"scaleU"]];
+	[defaults setDouble:settings.scaleV
+				 forKey:[self projectionPreferenceKey:@"scaleV"]];
+	[defaults setDouble:settings.rotation
+				 forKey:[self projectionPreferenceKey:@"rotation"]];
+	[defaults setDouble:settings.shear
+				 forKey:[self projectionPreferenceKey:@"shear"]];
+}
+
+- (void)syncProjectionFields
+{
+	const VSProjectionSettings settings = VSProjectionGet();
+	self.projectionValues[@"left"].stringValue =
+		[NSString stringWithFormat:@"%.1f°", settings.leftAngle];
+	self.projectionValues[@"right"].stringValue =
+		[NSString stringWithFormat:@"%.1f°", settings.rightAngle];
+	self.projectionValues[@"move"].stringValue =
+		[NSString stringWithFormat:@"%.1f", settings.moveDistance];
+	self.projectionValues[@"scaleU"].stringValue =
+		[NSString stringWithFormat:@"%.0f", settings.scaleU];
+	self.projectionValues[@"scaleV"].stringValue =
+		[NSString stringWithFormat:@"%.0f", settings.scaleV];
+	self.projectionValues[@"rotation"].stringValue =
+		[NSString stringWithFormat:@"%.1f", settings.rotation];
+	self.projectionValues[@"shear"].stringValue =
+		[NSString stringWithFormat:@"%.1f", settings.shear];
+	self.projectionSliders[@"scaleU"].doubleValue = settings.scaleU;
+	self.projectionSliders[@"scaleV"].doubleValue = settings.scaleV;
+	self.projectionSliders[@"rotation"].doubleValue = settings.rotation;
+	self.projectionSliders[@"shear"].doubleValue = settings.shear;
+
+	// Il preset si deduce dagli angoli invece di essere memorizzato a parte:
+	// così non può raccontare una cosa diversa da quella che disegna.
+	NSInteger preset = 4;
+	if (std::abs(settings.leftAngle - 30.0) < 0.05 &&
+		std::abs(settings.rightAngle - 30.0) < 0.05) {
+		preset = 0;
+	}
+	else if (std::abs(settings.leftAngle - 7.0) < 0.05 &&
+			 std::abs(settings.rightAngle - 42.0) < 0.05) {
+		preset = 1;
+	}
+	else if (std::abs(settings.leftAngle - 45.0) < 0.05 && std::abs(settings.rightAngle) < 0.05) preset = 2;
+	else if (std::abs(settings.leftAngle - 30.0) < 0.05 && std::abs(settings.rightAngle - 60.0) < 0.05) preset = 3;
+	self.projectionPreset.selectedSegment = preset;
+}
+
+- (NSView*)projectionParameterRow:(NSString*)key label:(NSString*)label value:(double)value
+{
+	NSStackView* row = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	row.alignment = NSLayoutAttributeCenterY;
+	row.spacing = 8;
+	row.translatesAutoresizingMaskIntoConstraints = NO;
+
+	NSTextField* caption = VSLabel(label, VSFontBody(), VSMuted());
+	[caption.widthAnchor constraintEqualToConstant:112].active = YES;
+	[row addArrangedSubview:caption];
+
+	NSSlider* slider = [[NSSlider alloc] initWithFrame:NSZeroRect];
+	VSSliderCell* cell = [[VSSliderCell alloc] init];
+	cell.minValue = 0.0;
+	cell.maxValue = 89.0;
+	cell.sliderType = NSSliderTypeLinear;
+	slider.cell = cell;
+	slider.minValue = 0.0;
+	slider.maxValue = 89.0;
+	slider.doubleValue = value;
+	slider.target = self;
+	slider.action = @selector(projectionSliderChanged:);
+	slider.identifier = key;
+	slider.continuous = NO;
+	slider.translatesAutoresizingMaskIntoConstraints = NO;
+	[slider.widthAnchor constraintGreaterThanOrEqualToConstant:86].active = YES;
+	[slider.heightAnchor constraintEqualToConstant:18].active = YES;
+	[row addArrangedSubview:slider];
+
+	NSTextField* field = [[VSNumericField alloc] initWithFrame:NSZeroRect];
+	field.font = VSFontMono();
+	field.identifier = key;
+	field.target = self;
+	field.action = @selector(projectionSliderChanged:);
+	field.translatesAutoresizingMaskIntoConstraints = NO;
+	field.alignment = NSTextAlignmentRight;
+	[field.widthAnchor constraintEqualToConstant:56].active = YES;
+	[row addArrangedSubview:field];
+
+	self.projectionSliders[key] = slider;
+	self.projectionValues[key] = field;
+	return row;
+}
+
+- (NSView*)projectionTransformParameterRow:(NSString*)key
+								 label:(NSString*)label
+							  minimum:(double)minimum
+							  maximum:(double)maximum
+								 value:(double)value
+{
+	NSStackView* row = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	row.alignment = NSLayoutAttributeCenterY;
+	row.spacing = 8;
+	row.translatesAutoresizingMaskIntoConstraints = NO;
+
+	NSTextField* caption = VSLabel(label, VSFontBody(), VSMuted());
+	[caption.widthAnchor constraintEqualToConstant:112].active = YES;
+	[row addArrangedSubview:caption];
+
+	NSSlider* slider = [[NSSlider alloc] initWithFrame:NSZeroRect];
+	VSSliderCell* cell = [[VSSliderCell alloc] init];
+	cell.minValue = minimum;
+	cell.maxValue = maximum;
+	cell.sliderType = NSSliderTypeLinear;
+	slider.cell = cell;
+	slider.minValue = minimum;
+	slider.maxValue = maximum;
+	slider.doubleValue = MAX(minimum, MIN(maximum, value));
+	slider.identifier = key;
+	slider.target = self;
+	slider.action = @selector(projectionTransformSliderChanged:);
+	slider.continuous = NO;
+	slider.translatesAutoresizingMaskIntoConstraints = NO;
+	[slider.widthAnchor constraintGreaterThanOrEqualToConstant:86].active = YES;
+	[slider.heightAnchor constraintEqualToConstant:18].active = YES;
+	[row addArrangedSubview:slider];
+
+	NSTextField* field = [[VSNumericField alloc] initWithFrame:NSZeroRect];
+	field.identifier = key;
+	field.alignment = NSTextAlignmentRight;
+	field.font = VSFontMono();
+	field.textColor = VSInk();
+	field.bezeled = YES;
+	field.bezelStyle = NSTextFieldRoundedBezel;
+	field.target = self;
+	field.action = @selector(projectionTransformValueCommitted:);
+	field.translatesAutoresizingMaskIntoConstraints = NO;
+	[field.widthAnchor constraintEqualToConstant:56].active = YES;
+	[row addArrangedSubview:field];
+
+	self.projectionSliders[key] = slider;
+	self.projectionValues[key] = field;
+	return row;
+}
+
+- (NSView*)projectionMoveDistanceRow:(double)value
+{
+	NSStackView* row = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	row.alignment = NSLayoutAttributeCenterY;
+	row.spacing = 8;
+	row.translatesAutoresizingMaskIntoConstraints = NO;
+
+	NSTextField* caption = VSLabel(@"Distanza (pt)", VSFontBody(), VSMuted());
+	[caption.widthAnchor constraintEqualToConstant:112].active = YES;
+	[row addArrangedSubview:caption];
+
+	NSSlider* slider = [[NSSlider alloc] initWithFrame:NSZeroRect];
+	VSSliderCell* cell = [[VSSliderCell alloc] init];
+	cell.minValue = -2000.0;
+	cell.maxValue = 2000.0;
+	cell.sliderType = NSSliderTypeLinear;
+	slider.cell = cell;
+	slider.minValue = -2000.0;
+	slider.maxValue = 2000.0;
+	slider.doubleValue = MAX(-2000.0, MIN(2000.0, value));
+	slider.target = self;
+	slider.action = @selector(projectionSliderChanged:);
+	slider.identifier = @"move";
+	slider.continuous = NO;
+	slider.translatesAutoresizingMaskIntoConstraints = NO;
+	[slider.widthAnchor constraintGreaterThanOrEqualToConstant:86].active = YES;
+	[slider.heightAnchor constraintEqualToConstant:18].active = YES;
+	[row addArrangedSubview:slider];
+
+	NSTextField* field = [[VSNumericField alloc] initWithFrame:NSZeroRect];
+	field.alignment = NSTextAlignmentRight;
+	field.font = VSFontMono();
+	field.textColor = VSInk();
+	field.bezeled = YES;
+	field.bezelStyle = NSTextFieldRoundedBezel;
+	field.target = self;
+	field.action = @selector(projectionMoveDistanceCommitted:);
+	field.translatesAutoresizingMaskIntoConstraints = NO;
+	[field.widthAnchor constraintEqualToConstant:56].active = YES;
+	[row addArrangedSubview:field];
+
+	self.projectionSliders[@"move"] = slider;
+	self.projectionValues[@"move"] = field;
+	return row;
+}
+
+- (NSView*)projectionSettingsView
+{
+	self.projectionSliders = [NSMutableDictionary dictionary];
+	self.projectionValues = [NSMutableDictionary dictionary];
+	const VSProjectionSettings settings = VSProjectionGet();
+
+	NSStackView* stack = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+	stack.alignment = NSLayoutAttributeLeading;
+	stack.spacing = 7;
+	stack.edgeInsets = NSEdgeInsetsMake(12, 12, 14, 12);
+	stack.translatesAutoresizingMaskIntoConstraints = NO;
+
+	[stack addArrangedSubview:VSEyebrow(@"Proiezione")];
+
+	self.projectionTool = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Linea", @"Rettangolo", @"Ellisse", @"Box"]
+				target:self
+				action:@selector(projectionToolChanged:)];
+	self.projectionTool.selectedSegment = [self projectionToolSelection];
+	[stack addArrangedSubview:self.projectionTool];
+	[self.projectionTool.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+											 constant:-24].active = YES;
+
+	self.projectionPreset = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Iso", @"Di", @"Cavaliera", @"Mono", @"Libera"]
+				target:self
+				action:@selector(projectionPresetChanged:)];
+	[stack addArrangedSubview:self.projectionPreset];
+	[self.projectionPreset.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+													 constant:-24].active = YES;
+
+	NSView* leftRow = [self projectionParameterRow:@"left"
+											 label:@"Angolo sinistro"
+											 value:settings.leftAngle];
+	[stack addArrangedSubview:leftRow];
+	[leftRow.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	NSView* rightRow = [self projectionParameterRow:@"right"
+											  label:@"Angolo destro"
+											  value:settings.rightAngle];
+	[stack addArrangedSubview:rightRow];
+	[rightRow.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	[stack addArrangedSubview:VSEyebrow(@"Piano attivo")];
+
+	self.projectionPlane = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Superiore", @"Sinistro", @"Destro"]
+				target:self
+				action:@selector(projectionPlaneChanged:)];
+	self.projectionPlane.selectedSegment = settings.plane;
+	[stack addArrangedSubview:self.projectionPlane];
+	[self.projectionPlane.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+													constant:-24].active = YES;
+
+	self.projectionSnap = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[self.projectionSnap setButtonType:NSButtonTypeSwitch];
+	self.projectionSnap.bordered = NO;
+	self.projectionSnap.title = @"Aggancia la linea agli assi";
+	self.projectionSnap.target = self;
+	self.projectionSnap.action = @selector(projectionSnapChanged:);
+	self.projectionSnap.state = settings.snapLine ? NSControlStateValueOn : NSControlStateValueOff;
+	self.projectionSnap.translatesAutoresizingMaskIntoConstraints = NO;
+	[self.projectionSnap.heightAnchor constraintEqualToConstant:20].active = YES;
+	[stack addArrangedSubview:self.projectionSnap];
+	VSPushButton* grid = [[VSPushButton alloc] initWithTitle:@"Crea griglia di guide" prominent:NO target:self action:@selector(createProjectionGrid:)];
+	[stack addArrangedSubview:grid];
+	VSPushButton* pen = [[VSPushButton alloc] initWithTitle:@"Usa Penna Illustrator" prominent:NO target:self action:@selector(useNativePen:)];
+	[stack addArrangedSubview:pen];
+	[self.projectionSnap.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+											   constant:-24].active = YES;
+
+	[stack addArrangedSubview:VSEyebrow(@"Trasforma selezione")];
+
+	self.projectionTarget = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Alto X", @"Alto Z", @"Sinistra", @"Destra"]
+				target:self
+				action:@selector(projectionTargetChanged:)];
+	self.projectionTarget.selectedSegment = [self projectionTargetSelection];
+	[stack addArrangedSubview:self.projectionTarget];
+	[self.projectionTarget.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+											   constant:-24].active = YES;
+
+	NSStackView* transformActions = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	transformActions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	transformActions.distribution = NSStackViewDistributionFillEqually;
+	transformActions.spacing = 7;
+	transformActions.translatesAutoresizingMaskIntoConstraints = NO;
+	[transformActions addArrangedSubview:
+		[[VSPushButton alloc] initWithTitle:@"Proietta"
+							 prominent:YES
+								target:self
+								action:@selector(projectionProjectSelection:)]];
+	[transformActions addArrangedSubview:
+		[[VSPushButton alloc] initWithTitle:@"Deproietta"
+							 prominent:NO
+								target:self
+								action:@selector(projectionUnprojectSelection:)]];
+	[stack addArrangedSubview:transformActions];
+	[transformActions.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+												constant:-24].active = YES;
+
+	self.projectionKeepOriginal = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[self.projectionKeepOriginal setButtonType:NSButtonTypeSwitch];
+	self.projectionKeepOriginal.bordered = NO;
+	self.projectionKeepOriginal.title = @"Mantieni l’originale";
+	self.projectionKeepOriginal.state = [NSUserDefaults.standardUserDefaults
+		boolForKey:[self projectionPreferenceKey:@"keepOriginal"]]
+		? NSControlStateValueOn
+		: NSControlStateValueOff;
+	self.projectionKeepOriginal.target = self;
+	self.projectionKeepOriginal.action = @selector(projectionKeepOriginalChanged:);
+	self.projectionKeepOriginal.translatesAutoresizingMaskIntoConstraints = NO;
+	[self.projectionKeepOriginal.heightAnchor constraintEqualToConstant:20].active = YES;
+	[stack addArrangedSubview:self.projectionKeepOriginal];
+	[self.projectionKeepOriginal.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+												  constant:-24].active = YES;
+
+	[stack addArrangedSubview:VSEyebrow(@"Sposta ed estrudi")];
+
+	self.projectionMoveAxis = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Asse X", @"Asse Z", @"Asse Y"]
+				target:self
+				action:@selector(projectionMoveAxisChanged:)];
+	self.projectionMoveAxis.selectedSegment = settings.moveAxis;
+	[stack addArrangedSubview:self.projectionMoveAxis];
+	[self.projectionMoveAxis.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+												 constant:-24].active = YES;
+
+	NSView* moveRow = [self projectionMoveDistanceRow:settings.moveDistance];
+	[stack addArrangedSubview:moveRow];
+	[moveRow.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	NSStackView* moveActions = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	moveActions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	moveActions.distribution = NSStackViewDistributionFillEqually;
+	moveActions.spacing = 7;
+	moveActions.translatesAutoresizingMaskIntoConstraints = NO;
+	[moveActions addArrangedSubview:
+		[[VSPushButton alloc] initWithTitle:@"Sposta"
+							 prominent:YES
+								target:self
+								action:@selector(projectionMoveSelection:)]];
+	[moveActions addArrangedSubview:
+		[[VSPushButton alloc] initWithTitle:@"Estrudi"
+							 prominent:NO
+								target:self
+								action:@selector(projectionExtrudeSelection:)]];
+	[stack addArrangedSubview:moveActions];
+	[moveActions.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+											constant:-24].active = YES;
+
+	[stack addArrangedSubview:VSEyebrow(@"Trasforma sul piano")];
+
+	NSArray<NSView*>* planeRows = @[
+		[self projectionTransformParameterRow:@"scaleU"
+									label:@"Scala U (%)"
+								  minimum:1.0
+								  maximum:1000.0
+									 value:settings.scaleU],
+		[self projectionTransformParameterRow:@"scaleV"
+									label:@"Scala V (%)"
+								  minimum:1.0
+								  maximum:1000.0
+									 value:settings.scaleV],
+		[self projectionTransformParameterRow:@"rotation"
+									label:@"Rotazione (°)"
+								  minimum:-360.0
+								  maximum:360.0
+									 value:settings.rotation],
+		[self projectionTransformParameterRow:@"shear"
+									label:@"Inclinazione (°)"
+								  minimum:-80.0
+								  maximum:80.0
+									 value:settings.shear]
+	];
+	for (NSView* row in planeRows) {
+		[stack addArrangedSubview:row];
+		[row.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	}
+
+	NSStackView* planeActions = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	planeActions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	planeActions.distribution = NSStackViewDistributionFillEqually;
+	planeActions.spacing = 7;
+	planeActions.translatesAutoresizingMaskIntoConstraints = NO;
+	[planeActions addArrangedSubview:
+		[[VSPushButton alloc] initWithTitle:@"Scala"
+							 prominent:YES
+								target:self
+								action:@selector(projectionScaleSelection:)]];
+	[planeActions addArrangedSubview:
+		[[VSPushButton alloc] initWithTitle:@"Ruota"
+							 prominent:NO
+								target:self
+								action:@selector(projectionRotateSelection:)]];
+	[planeActions addArrangedSubview:
+		[[VSPushButton alloc] initWithTitle:@"Inclina"
+							 prominent:NO
+								target:self
+								action:@selector(projectionShearSelection:)]];
+	[stack addArrangedSubview:planeActions];
+	[planeActions.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+											 constant:-24].active = YES;
+
+	VSPushButton* measure = [[VSPushButton alloc] initWithTitle:@"Misura selezione"
+										 prominent:NO
+										target:self
+										action:@selector(projectionMeasureSelection:)];
+	[stack addArrangedSubview:measure];
+	[measure.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	NSTextField* hint = VSLabel(
+		@"Gli angoli valgono per tutti e quattro gli strumenti. Con Maiuscolo "
+		@"premuto rettangoli ed ellissi restano quadrati sul piano. Mantieni "
+		@"l’originale vale anche per spostamento e trasformazioni.",
+		VSFontSmall(), VSQuiet());
+	hint.lineBreakMode = NSLineBreakByWordWrapping;
+	hint.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:hint];
+	[hint.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	[self syncProjectionFields];
+	return stack;
+}
+
+- (void)projectionToolChanged:(VSSegmentedControl*)sender
+{
+	NSInteger tool = sender.selectedSegment;
+	if (tool < 0 || tool >= kVSPanelProjectionToolCount) tool = 0;
+	[NSUserDefaults.standardUserDefaults
+		setInteger:tool
+			  forKey:[self projectionPreferenceKey:@"tool"]];
+	if (self.activateTool) {
+		self.activateTool(self.callbackContext,
+			kVSPanelProjectionToolBase + (int)tool);
+	}
+}
+
+- (void)projectionTargetChanged:(VSSegmentedControl*)sender
+{
+	NSInteger target = sender.selectedSegment;
+	if (target < 0 || target >= kVSPanelProjectionCommandCount) target = 0;
+	[NSUserDefaults.standardUserDefaults
+		setInteger:target
+			  forKey:[self projectionPreferenceKey:@"target"]];
+}
+
+- (void)projectionKeepOriginalChanged:(NSButton*)sender
+{
+	[NSUserDefaults.standardUserDefaults
+		setBool:sender.state == NSControlStateValueOn
+		   forKey:[self projectionPreferenceKey:@"keepOriginal"]];
+}
+
+- (void)runProjectionSelectionCommand:(int)base
+{
+	if (!self.activateTool) return;
+	int command = base + (int)[self projectionTargetSelection];
+	if (self.projectionKeepOriginal.state == NSControlStateValueOn) {
+		command += kVSPanelProjectionCopyOffset;
+	}
+	self.activateTool(self.callbackContext, command);
+}
+
+- (void)projectionProjectSelection:(id)sender
+{
+	[self runProjectionSelectionCommand:kVSPanelProjectionProjectBase];
+}
+
+- (void)projectionUnprojectSelection:(id)sender
+{
+	[self runProjectionSelectionCommand:kVSPanelProjectionUnprojectBase];
+}
+
+- (void)projectionMoveAxisChanged:(VSSegmentedControl*)sender
+{
+	VSProjectionSettings settings = VSProjectionGet();
+	NSInteger axis = sender.selectedSegment;
+	if (axis < 0 || axis >= kVSPanelProjectionAxisCount) axis = 0;
+	settings.moveAxis = (int)axis;
+	[self storeProjection:settings];
+}
+
+- (void)projectionMoveDistanceCommitted:(NSTextField*)sender
+{
+	VSProjectionSettings settings = VSProjectionGet();
+	settings.moveDistance = MAX(-2000.0, MIN(2000.0, sender.doubleValue));
+	[self storeProjection:settings];
+	self.projectionSliders[@"move"].doubleValue = settings.moveDistance;
+	[self syncProjectionFields];
+}
+
+- (void)runProjectionAxisCommand:(int)base keepOriginal:(BOOL)keepOriginal
+{
+	if (!self.activateTool) return;
+	NSInteger axis = self.projectionMoveAxis.selectedSegment;
+	if (axis < 0 || axis >= kVSPanelProjectionAxisCount) axis = 0;
+	int command = base + (int)axis;
+	if (keepOriginal &&
+		self.projectionKeepOriginal.state == NSControlStateValueOn) {
+		command += kVSPanelProjectionCopyOffset;
+	}
+	self.activateTool(self.callbackContext, command);
+}
+
+- (void)projectionMoveSelection:(id)sender
+{
+	[self runProjectionAxisCommand:kVSPanelProjectionMoveBase keepOriginal:YES];
+}
+
+- (void)projectionExtrudeSelection:(id)sender
+{
+	[self runProjectionAxisCommand:kVSPanelProjectionExtrudeBase keepOriginal:NO];
+}
+
+- (void)storeProjectionTransformValue:(double)value key:(NSString*)key
+{
+	VSProjectionSettings settings = VSProjectionGet();
+	if ([key isEqualToString:@"scaleU"]) settings.scaleU = value;
+	else if ([key isEqualToString:@"scaleV"]) settings.scaleV = value;
+	else if ([key isEqualToString:@"rotation"]) settings.rotation = value;
+	else if ([key isEqualToString:@"shear"]) settings.shear = value;
+	else return;
+	[self storeProjection:settings];
+	[self syncProjectionFields];
+}
+
+- (void)projectionTransformSliderChanged:(NSSlider*)sender
+{
+	[self storeProjectionTransformValue:sender.doubleValue key:sender.identifier];
+}
+
+- (void)projectionTransformValueCommitted:(NSTextField*)sender
+{
+	[self storeProjectionTransformValue:sender.doubleValue key:sender.identifier];
+}
+
+- (void)runProjectionPlaneTransform:(int)command
+{
+	if (!self.activateTool) return;
+	if (self.projectionKeepOriginal.state == NSControlStateValueOn) {
+		command += kVSPanelProjectionCopyOffset;
+	}
+	self.activateTool(self.callbackContext, command);
+}
+
+- (void)projectionScaleSelection:(id)sender
+{
+	[self runProjectionPlaneTransform:kVSPanelProjectionScale];
+}
+
+- (void)projectionRotateSelection:(id)sender
+{
+	[self runProjectionPlaneTransform:kVSPanelProjectionRotate];
+}
+
+- (void)projectionShearSelection:(id)sender
+{
+	[self runProjectionPlaneTransform:kVSPanelProjectionShear];
+}
+
+- (void)projectionMeasureSelection:(id)sender
+{
+	if (self.activateTool) {
+		self.activateTool(self.callbackContext, kVSPanelProjectionMeasure);
+	}
+}
+
+- (void)projectionSliderChanged:(NSSlider*)sender
+{
+	VSProjectionSettings settings = VSProjectionGet();
+	if ([sender.identifier isEqualToString:@"left"]) {
+		settings.leftAngle = sender.doubleValue;
+	}
+	else if ([sender.identifier isEqualToString:@"right"]) {
+		settings.rightAngle = sender.doubleValue;
+	}
+	else if ([sender.identifier isEqualToString:@"move"]) {
+		settings.moveDistance = sender.doubleValue;
+	}
+	[self storeProjection:settings];
+	[self syncProjectionFields];
+}
+
+- (void)projectionPresetChanged:(VSSegmentedControl*)sender
+{
+	VSProjectionSettings settings = VSProjectionGet();
+	if (sender.selectedSegment == 0) {
+		settings.leftAngle = 30.0;
+		settings.rightAngle = 30.0;
+	}
+	else if (sender.selectedSegment == 1) {
+		// Dimetrica secondo la convenzione del disegno tecnico: 7° e 42°.
+		settings.leftAngle = 7.0;
+		settings.rightAngle = 42.0;
+	}
+	else if (sender.selectedSegment == 2) {
+		settings.leftAngle = 45.0; settings.rightAngle = 0.0;
+	}
+	else if (sender.selectedSegment == 3) {
+		settings.leftAngle = 30.0; settings.rightAngle = 60.0;
+	}
+	else {
+		// «Libera» non impone angoli: restano quelli scelti con i cursori.
+		[self syncProjectionFields];
+		return;
+	}
+	[self storeProjection:settings];
+	self.projectionSliders[@"left"].doubleValue = settings.leftAngle;
+	self.projectionSliders[@"right"].doubleValue = settings.rightAngle;
+	[self syncProjectionFields];
+}
+
+- (void)projectionPlaneChanged:(VSSegmentedControl*)sender
+{
+	VSProjectionSettings settings = VSProjectionGet();
+	settings.plane = (int)sender.selectedSegment;
+	[self storeProjection:settings];
+}
+
+- (void)projectionSnapChanged:(NSButton*)sender
+{
+	VSProjectionSettings settings = VSProjectionGet();
+	settings.snapLine = sender.state == NSControlStateValueOn ? 1 : 0;
+	[self storeProjection:settings];
+}
+
+#pragma mark Trasformazioni
+
+- (void)createProjectionGrid:(id)sender
+{
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelProjectionGrid);
+}
+- (void)useNativePen:(id)sender
+{
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelNativePen);
+}
+
+- (NSString*)transformPreferenceKey:(NSString*)module key:(NSString*)key
+{
+	return [NSString stringWithFormat:@"studio.vectorsuite.%@.%@", module, key];
+}
+
+- (double)storedTransformValue:(NSString*)module
+							key:(NSString*)key
+					 defaultValue:(double)defaultValue
+{
+	NSString* preference = [self transformPreferenceKey:module key:key];
+	id stored = [NSUserDefaults.standardUserDefaults objectForKey:preference];
+	return stored ? [stored doubleValue] : defaultValue;
+}
+
+- (BOOL)storedTransformFlag:(NSString*)module
+						  key:(NSString*)key
+				 defaultValue:(BOOL)defaultValue
+{
+	NSString* preference = [self transformPreferenceKey:module key:key];
+	id stored = [NSUserDefaults.standardUserDefaults objectForKey:preference];
+	return stored ? [stored boolValue] : defaultValue;
+}
+
+- (NSView*)transformFieldRow:(NSString*)title
+						 key:(NSString*)key
+					   value:(double)value
+					decimals:(NSInteger)decimals
+{
+	NSStackView* row = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	row.alignment = NSLayoutAttributeCenterY;
+	row.spacing = 8;
+	row.translatesAutoresizingMaskIntoConstraints = NO;
+
+	NSTextField* label = VSLabel(title, VSFontBody(), VSMuted());
+	[label.widthAnchor constraintEqualToConstant:150].active = YES;
+	[row addArrangedSubview:label];
+
+	NSTextField* field = [[VSNumericField alloc] initWithFrame:NSZeroRect];
+	field.identifier = key;
+	field.stringValue = [NSString stringWithFormat:
+		decimals == 0 ? @"%.0f" : (decimals == 1 ? @"%.1f" : @"%.2f"),
+		value];
+	field.alignment = NSTextAlignmentRight;
+	field.font = VSFontMono();
+	field.textColor = VSInk();
+	field.bezeled = YES;
+	field.bezelStyle = NSTextFieldRoundedBezel;
+	field.translatesAutoresizingMaskIntoConstraints = NO;
+	[field.widthAnchor constraintEqualToConstant:76].active = YES;
+	[row addArrangedSubview:field];
+	self.transformFields[key] = field;
+	return row;
+}
+
+- (void)addTransformRow:(NSView*)row toStack:(NSStackView*)stack
+{
+	[stack addArrangedSubview:row];
+	[row.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+}
+
+- (NSStackView*)transformSettingsStack
+{
+	self.transformFields = [NSMutableDictionary dictionary];
+	NSStackView* stack = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+	stack.alignment = NSLayoutAttributeLeading;
+	stack.spacing = 7;
+	stack.edgeInsets = NSEdgeInsetsMake(12, 12, 14, 12);
+	stack.translatesAutoresizingMaskIntoConstraints = NO;
+	return stack;
+}
+
+- (NSView*)collisionSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Allineamento a contatto")];
+	NSTextField* explanation = VSLabel(
+		@"Il primo oggetto selezionato è il riferimento; gli altri vengono "
+		 @"disposti in sequenza senza sovrapposizione.",
+		VSFontSmall(),
+		VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSCollisionSettings settings = VSCollisionDefaults();
+	settings.direction = (int)[self storedTransformValue:@"collision"
+		key:@"direction" defaultValue:settings.direction];
+	settings.gap = [self storedTransformValue:@"collision"
+		key:@"gap" defaultValue:settings.gap];
+	settings.alignCenters = [self storedTransformFlag:@"collision"
+		key:@"alignCenters" defaultValue:YES] ? 1 : 0;
+	settings = VSSanitizeCollision(settings);
+
+	self.collisionDirection = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Destra", @"Sinistra", @"Su", @"Giù"]
+			target:nil
+			action:nil];
+	self.collisionDirection.selectedSegment = settings.direction;
+	[stack addArrangedSubview:self.collisionDirection];
+	[self.collisionDirection.widthAnchor constraintEqualToAnchor:stack.widthAnchor
+		constant:-24].active = YES;
+
+	[self addTransformRow:[self transformFieldRow:@"Distanza" key:@"gap"
+		value:settings.gap decimals:2] toStack:stack];
+
+	VSCheckbox* centers = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[centers setButtonType:NSButtonTypeSwitch];
+	centers.bordered = NO;
+	centers.title = @"Allinea anche i centri";
+	centers.state = settings.alignCenters ? NSControlStateValueOn : NSControlStateValueOff;
+	centers.translatesAutoresizingMaskIntoConstraints = NO;
+	self.collisionAlignCenters = centers;
+	[stack addArrangedSubview:centers];
+
+	VSPushButton* apply = [[VSPushButton alloc]
+		initWithTitle:@"Allinea selezione"
+		prominent:YES
+		target:self
+		action:@selector(applyCollision:)];
+	[stack addArrangedSubview:apply];
+	[apply.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSCollisionSet(&settings);
+	return stack;
+}
+
+- (void)applyCollision:(id)sender
+{
+	VSCollisionSettings settings = VSCollisionDefaults();
+	settings.direction = (int)self.collisionDirection.selectedSegment;
+	settings.gap = self.transformFields[@"gap"].doubleValue;
+	settings.alignCenters = self.collisionAlignCenters.state == NSControlStateValueOn ? 1 : 0;
+	settings = VSSanitizeCollision(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setInteger:settings.direction forKey:[self transformPreferenceKey:@"collision" key:@"direction"]];
+	[defaults setDouble:settings.gap forKey:[self transformPreferenceKey:@"collision" key:@"gap"]];
+	[defaults setBool:settings.alignCenters forKey:[self transformPreferenceKey:@"collision" key:@"alignCenters"]];
+	VSCollisionSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelCollisionApply);
+}
+
+- (NSView*)mirrorSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Simmetria")];
+	NSTextField* explanation = VSLabel(
+		@"Crea copie rispetto al centro complessivo della selezione. La modalità "
+		 @"radiale distribuisce il numero di copie indicato su 360°.",
+		VSFontSmall(),
+		VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSMirrorSettings settings = VSMirrorDefaults();
+	settings.mode = (int)[self storedTransformValue:@"mirror" key:@"mode"
+		defaultValue:settings.mode];
+	settings.copies = (int)[self storedTransformValue:@"mirror" key:@"copies"
+		defaultValue:settings.copies];
+	settings.axisOffset = [self storedTransformValue:@"mirror" key:@"axisOffset"
+		defaultValue:settings.axisOffset];
+	settings = VSSanitizeMirror(settings);
+
+	self.mirrorMode = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Verticale", @"Orizzontale", @"Entrambi", @"Radiale"]
+			target:self
+			action:@selector(mirrorSettingsChanged:)];
+	self.mirrorMode.selectedSegment = settings.mode;
+	[stack addArrangedSubview:self.mirrorMode];
+	[self.mirrorMode.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	[self addTransformRow:[self transformFieldRow:@"Copie radiali (2–32)"
+		key:@"copies" value:settings.copies decimals:0] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Spostamento asse"
+		key:@"axisOffset" value:settings.axisOffset decimals:2] toStack:stack];
+	for (NSString* key in @[@"copies", @"axisOffset"]) {
+		self.transformFields[key].target = self;
+		self.transformFields[key].action = @selector(mirrorSettingsChanged:);
+		self.transformFields[key].delegate = self;
+	}
+	self.transformFields[@"copies"].enabled = settings.mode == kVSMirrorRadial;
+
+	VSPushButton* apply = [[VSPushButton alloc]
+		initWithTitle:@"Crea simmetria"
+		prominent:YES
+		target:self
+		action:@selector(applyMirror:)];
+	[stack addArrangedSubview:apply];
+	[apply.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSMirrorSet(&settings);
+	return stack;
+}
+
+- (void)mirrorSettingsChanged:(id)sender
+{
+	VSMirrorSettings settings = VSMirrorDefaults();
+	settings.mode = (int)self.mirrorMode.selectedSegment;
+	settings.copies = self.transformFields[@"copies"].intValue;
+	settings.axisOffset = self.transformFields[@"axisOffset"].doubleValue;
+	settings = VSSanitizeMirror(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setInteger:settings.mode forKey:[self transformPreferenceKey:@"mirror" key:@"mode"]];
+	[defaults setInteger:settings.copies forKey:[self transformPreferenceKey:@"mirror" key:@"copies"]];
+	[defaults setDouble:settings.axisOffset forKey:[self transformPreferenceKey:@"mirror" key:@"axisOffset"]];
+	VSMirrorSet(&settings);
+	self.transformFields[@"copies"].enabled = settings.mode == kVSMirrorRadial;
+}
+
+- (void)applyMirror:(id)sender
+{
+	[self.view.window makeFirstResponder:nil];
+	[self mirrorSettingsChanged:sender];
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelMirrorApply);
+}
+
+- (NSView*)randomizeSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Trasformazione casuale")];
+	NSTextField* explanation = VSLabel(
+		@"Lo stesso seme produce sempre la stessa variazione. Tutti i valori "
+		 @"sono limiti massimi, applicati attorno al centro di ogni oggetto.",
+		VSFontSmall(),
+		VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSRandomizeSettings settings = VSRandomizeDefaults();
+	settings.seed = (std::uint32_t)[self storedTransformValue:@"randomize" key:@"seed"
+		defaultValue:settings.seed];
+	settings.positionX = [self storedTransformValue:@"randomize" key:@"positionX"
+		defaultValue:settings.positionX];
+	settings.positionY = [self storedTransformValue:@"randomize" key:@"positionY"
+		defaultValue:settings.positionY];
+	settings.rotation = [self storedTransformValue:@"randomize" key:@"rotation"
+		defaultValue:settings.rotation];
+	settings.scaleMinimum = [self storedTransformValue:@"randomize" key:@"scaleMinimum"
+		defaultValue:settings.scaleMinimum];
+	settings.scaleMaximum = [self storedTransformValue:@"randomize" key:@"scaleMaximum"
+		defaultValue:settings.scaleMaximum];
+	settings.uniformScale = [self storedTransformFlag:@"randomize" key:@"uniformScale"
+		defaultValue:YES] ? 1 : 0;
+	settings.distribution = (int)[self storedTransformValue:@"randomize" key:@"distribution"
+		defaultValue:settings.distribution];
+	settings = VSSanitizeRandomize(settings);
+
+	self.randomDistribution = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Uniforme", @"Centrata"] target:nil action:nil];
+	self.randomDistribution.selectedSegment = settings.distribution;
+	[stack addArrangedSubview:self.randomDistribution];
+	[self.randomDistribution.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	[self addTransformRow:[self transformFieldRow:@"Seme" key:@"seed"
+		value:settings.seed decimals:0] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Posizione X (pt)" key:@"positionX"
+		value:settings.positionX decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Posizione Y (pt)" key:@"positionY"
+		value:settings.positionY decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Rotazione (°)" key:@"rotation"
+		value:settings.rotation decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Scala minima" key:@"scaleMinimum"
+		value:settings.scaleMinimum decimals:2] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Scala massima" key:@"scaleMaximum"
+		value:settings.scaleMaximum decimals:2] toStack:stack];
+
+	VSCheckbox* uniform = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[uniform setButtonType:NSButtonTypeSwitch];
+	uniform.bordered = NO;
+	uniform.title = @"Scala uniforme";
+	uniform.state = settings.uniformScale ? NSControlStateValueOn : NSControlStateValueOff;
+	uniform.translatesAutoresizingMaskIntoConstraints = NO;
+	self.randomUniformScale = uniform;
+	[stack addArrangedSubview:uniform];
+
+	NSStackView* actions = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	actions.distribution = NSStackViewDistributionFillEqually;
+	actions.spacing = 7;
+	actions.translatesAutoresizingMaskIntoConstraints = NO;
+	[actions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Nuovo seme"
+		prominent:NO target:self action:@selector(newRandomSeed:)]];
+	[actions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Applica"
+		prominent:YES target:self action:@selector(applyRandomize:)]];
+	[stack addArrangedSubview:actions];
+	[actions.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSRandomizeSet(&settings);
+	return stack;
+}
+
+- (void)newRandomSeed:(id)sender
+{
+	std::uint32_t seed = arc4random_uniform(999999u) + 1u;
+	self.transformFields[@"seed"].integerValue = seed;
+}
+
+- (void)applyRandomize:(id)sender
+{
+	VSRandomizeSettings settings = VSRandomizeDefaults();
+	settings.seed = (std::uint32_t)MAX(1, self.transformFields[@"seed"].integerValue);
+	settings.positionX = self.transformFields[@"positionX"].doubleValue;
+	settings.positionY = self.transformFields[@"positionY"].doubleValue;
+	settings.rotation = self.transformFields[@"rotation"].doubleValue;
+	settings.scaleMinimum = self.transformFields[@"scaleMinimum"].doubleValue;
+	settings.scaleMaximum = self.transformFields[@"scaleMaximum"].doubleValue;
+	settings.uniformScale = self.randomUniformScale.state == NSControlStateValueOn ? 1 : 0;
+	settings.distribution = (int)self.randomDistribution.selectedSegment;
+	settings = VSSanitizeRandomize(settings);
+
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setInteger:settings.seed forKey:[self transformPreferenceKey:@"randomize" key:@"seed"]];
+	[defaults setDouble:settings.positionX forKey:[self transformPreferenceKey:@"randomize" key:@"positionX"]];
+	[defaults setDouble:settings.positionY forKey:[self transformPreferenceKey:@"randomize" key:@"positionY"]];
+	[defaults setDouble:settings.rotation forKey:[self transformPreferenceKey:@"randomize" key:@"rotation"]];
+	[defaults setDouble:settings.scaleMinimum forKey:[self transformPreferenceKey:@"randomize" key:@"scaleMinimum"]];
+	[defaults setDouble:settings.scaleMaximum forKey:[self transformPreferenceKey:@"randomize" key:@"scaleMaximum"]];
+	[defaults setBool:settings.uniformScale forKey:[self transformPreferenceKey:@"randomize" key:@"uniformScale"]];
+	[defaults setInteger:settings.distribution forKey:[self transformPreferenceKey:@"randomize" key:@"distribution"]];
+	VSRandomizeSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelRandomizeApply);
+}
+
+#pragma mark Traccia e aspetto
+
+- (NSView*)widthSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Traccia")];
+	NSTextField* explanation = VSLabel(
+		@"Imposta uno spessore esatto oppure moltiplica quello esistente. "
+		 @"L’operazione attraversa gruppi e tracciati composti.",
+		VSFontSmall(),
+		VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSWidthSettings settings = VSWidthDefaults();
+	settings.mode = (int)[self storedTransformValue:@"width" key:@"mode"
+		defaultValue:settings.mode];
+	settings.value = [self storedTransformValue:@"width" key:@"value"
+		defaultValue:settings.value];
+	settings.cap = (int)[self storedTransformValue:@"width" key:@"cap"
+		defaultValue:settings.cap];
+	settings.join = (int)[self storedTransformValue:@"width" key:@"join"
+		defaultValue:settings.join];
+	settings = VSSanitizeWidth(settings);
+
+	self.widthMode = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Spessore esatto", @"Moltiplicatore"] target:nil action:nil];
+	self.widthMode.selectedSegment = settings.mode;
+	[stack addArrangedSubview:self.widthMode];
+	[self.widthMode.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	[self addTransformRow:[self transformFieldRow:@"Valore" key:@"widthValue"
+		value:settings.value decimals:2] toStack:stack];
+
+	[stack addArrangedSubview:VSEyebrow(@"Terminali")];
+	self.widthCap = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Netto", @"Tondo", @"Esteso"] target:nil action:nil];
+	self.widthCap.selectedSegment = settings.cap;
+	[stack addArrangedSubview:self.widthCap];
+	[self.widthCap.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	self.widthJoin = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Mitra", @"Tondo", @"Smusso"] target:nil action:nil];
+	self.widthJoin.selectedSegment = settings.join;
+	[stack addArrangedSubview:self.widthJoin];
+	[self.widthJoin.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSPushButton* apply = [[VSPushButton alloc]
+		initWithTitle:@"Applica alla selezione" prominent:YES target:self
+		action:@selector(applyWidth:)];
+	[stack addArrangedSubview:apply];
+	[apply.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSWidthSet(&settings);
+	return stack;
+}
+
+- (void)applyWidth:(id)sender
+{
+	VSWidthSettings settings = VSWidthDefaults();
+	settings.mode = (int)self.widthMode.selectedSegment;
+	settings.value = self.transformFields[@"widthValue"].doubleValue;
+	settings.cap = (int)self.widthCap.selectedSegment;
+	settings.join = (int)self.widthJoin.selectedSegment;
+	settings = VSSanitizeWidth(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setInteger:settings.mode forKey:[self transformPreferenceKey:@"width" key:@"mode"]];
+	[defaults setDouble:settings.value forKey:[self transformPreferenceKey:@"width" key:@"value"]];
+	[defaults setInteger:settings.cap forKey:[self transformPreferenceKey:@"width" key:@"cap"]];
+	[defaults setInteger:settings.join forKey:[self transformPreferenceKey:@"width" key:@"join"]];
+	VSWidthSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelWidthApply);
+}
+
+- (NSView*)liveStyleSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Composizione")];
+	NSTextField* explanation = VSLabel(
+		@"Applica opacità e metodo di fusione in modo non distruttivo "
+		 @"all’oggetto o al gruppo selezionato.",
+		VSFontSmall(),
+		VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSLiveStyleSettings settings = VSLiveStyleDefaults();
+	settings.opacity = [self storedTransformValue:@"liveStyle" key:@"opacity"
+		defaultValue:settings.opacity];
+	settings.blendMode = (int)[self storedTransformValue:@"liveStyle" key:@"blendMode"
+		defaultValue:settings.blendMode];
+	settings.isolated = [self storedTransformFlag:@"liveStyle" key:@"isolated"
+		defaultValue:NO] ? 1 : 0;
+	settings = VSSanitizeLiveStyle(settings);
+
+	[self addTransformRow:[self transformFieldRow:@"Opacità (0–100%)"
+		key:@"opacity" value:settings.opacity * 100.0 decimals:1] toStack:stack];
+	self.liveBlendValues = @[@0, @1, @2, @3];
+	self.liveBlendMode = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Normale", @"Moltiplica", @"Scolora", @"Sovrapponi"]
+			target:nil action:nil];
+	NSUInteger blendIndex = [self.liveBlendValues indexOfObject:@(settings.blendMode)];
+	self.liveBlendMode.selectedSegment = blendIndex == NSNotFound ? 0 : blendIndex;
+	[stack addArrangedSubview:self.liveBlendMode];
+	[self.liveBlendMode.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSCheckbox* isolated = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[isolated setButtonType:NSButtonTypeSwitch];
+	isolated.bordered = NO;
+	isolated.title = @"Isola la fusione nel gruppo";
+	isolated.state = settings.isolated ? NSControlStateValueOn : NSControlStateValueOff;
+	isolated.translatesAutoresizingMaskIntoConstraints = NO;
+	self.liveIsolated = isolated;
+	[stack addArrangedSubview:isolated];
+
+	VSPushButton* apply = [[VSPushButton alloc]
+		initWithTitle:@"Applica stile" prominent:YES target:self
+		action:@selector(applyLiveStyle:)];
+	[stack addArrangedSubview:apply];
+	[apply.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSLiveStyleSet(&settings);
+	return stack;
+}
+
+- (void)applyLiveStyle:(id)sender
+{
+	VSLiveStyleSettings settings = VSLiveStyleDefaults();
+	settings.opacity = self.transformFields[@"opacity"].doubleValue / 100.0;
+	NSInteger blendIndex = self.liveBlendMode.selectedSegment;
+	if (blendIndex < 0 || blendIndex >= (NSInteger)self.liveBlendValues.count) blendIndex = 0;
+	settings.blendMode = self.liveBlendValues[blendIndex].intValue;
+	settings.isolated = self.liveIsolated.state == NSControlStateValueOn ? 1 : 0;
+	settings = VSSanitizeLiveStyle(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.opacity forKey:[self transformPreferenceKey:@"liveStyle" key:@"opacity"]];
+	[defaults setInteger:settings.blendMode forKey:[self transformPreferenceKey:@"liveStyle" key:@"blendMode"]];
+	[defaults setBool:settings.isolated forKey:[self transformPreferenceKey:@"liveStyle" key:@"isolated"]];
+	VSLiveStyleSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelLiveStyleApply);
+}
+
+- (NSView*)colorSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Regolazione colore")];
+	NSTextField* explanation = VSLabel(
+		@"Regola riempimenti e tracce RGB, CMYK e scala di grigio. "
+		 @"Colori campione, pattern e gradienti restano invariati.",
+		VSFontSmall(),
+		VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSColorSettings settings = VSColorDefaults();
+	settings.brightness = [self storedTransformValue:@"color" key:@"brightness"
+		defaultValue:settings.brightness];
+	settings.contrast = [self storedTransformValue:@"color" key:@"contrast"
+		defaultValue:settings.contrast];
+	settings.saturation = [self storedTransformValue:@"color" key:@"saturation"
+		defaultValue:settings.saturation];
+	settings.hueDegrees = [self storedTransformValue:@"color" key:@"hueDegrees"
+		defaultValue:settings.hueDegrees];
+	settings = VSSanitizeColor(settings);
+
+	[self addTransformRow:[self transformFieldRow:@"Luminosità (−100…100)"
+		key:@"brightness" value:settings.brightness * 100 decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Contrasto (−100…100)"
+		key:@"contrast" value:settings.contrast * 100 decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Saturazione (−100…100)"
+		key:@"saturation" value:settings.saturation * 100 decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Tonalità (−180…180°)"
+		key:@"hueDegrees" value:settings.hueDegrees decimals:1] toStack:stack];
+
+	NSStackView* actions = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	actions.distribution = NSStackViewDistributionFillEqually;
+	actions.spacing = 7;
+	actions.translatesAutoresizingMaskIntoConstraints = NO;
+	[actions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Azzera"
+		prominent:NO target:self action:@selector(resetColor:)]];
+	[actions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Applica"
+		prominent:YES target:self action:@selector(applyColor:)]];
+	[stack addArrangedSubview:actions];
+	[actions.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSColorSet(&settings);
+	return stack;
+}
+
+- (void)resetColor:(id)sender
+{
+	for (NSString* key in @[@"brightness", @"contrast", @"saturation", @"hueDegrees"]) {
+		self.transformFields[key].doubleValue = 0;
+	}
+}
+
+- (void)applyColor:(id)sender
+{
+	VSColorSettings settings = VSColorDefaults();
+	settings.brightness = self.transformFields[@"brightness"].doubleValue / 100.0;
+	settings.contrast = self.transformFields[@"contrast"].doubleValue / 100.0;
+	settings.saturation = self.transformFields[@"saturation"].doubleValue / 100.0;
+	settings.hueDegrees = self.transformFields[@"hueDegrees"].doubleValue;
+	settings = VSSanitizeColor(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.brightness forKey:[self transformPreferenceKey:@"color" key:@"brightness"]];
+	[defaults setDouble:settings.contrast forKey:[self transformPreferenceKey:@"color" key:@"contrast"]];
+	[defaults setDouble:settings.saturation forKey:[self transformPreferenceKey:@"color" key:@"saturation"]];
+	[defaults setDouble:settings.hueDegrees forKey:[self transformPreferenceKey:@"color" key:@"hueDegrees"]];
+	VSColorSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelColorApply);
+}
+
+#pragma mark Strumenti di disegno
+
+- (NSView*)precisionSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Penna parametrica")];
+	NSTextField* explanation = VSLabel(
+		@"Trascina sulla tavola. L’angolo viene vincolato al passo indicato; "
+		 @"la lunghezza zero usa la distanza del cursore.",
+		VSFontSmall(), VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSPrecisionSettings settings = VSPrecisionDefaults();
+	settings.angleStep = [self storedTransformValue:@"precision" key:@"angleStep"
+		defaultValue:settings.angleStep];
+	settings.fixedLength = [self storedTransformValue:@"precision" key:@"fixedLength"
+		defaultValue:settings.fixedLength];
+	settings.curveAmount = [self storedTransformValue:@"precision" key:@"curveAmount"
+		defaultValue:settings.curveAmount];
+	settings.strokeWidth = [self storedTransformValue:@"precision" key:@"strokeWidth"
+		defaultValue:settings.strokeWidth];
+	settings = VSSanitizePrecision(settings);
+	[self addTransformRow:[self transformFieldRow:@"Passo angolare (°)" key:@"precisionAngle"
+		value:settings.angleStep decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Lunghezza fissa (pt)" key:@"precisionLength"
+		value:settings.fixedLength decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Curvatura (−100…100)" key:@"precisionCurve"
+		value:settings.curveAmount * 100 decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Spessore (pt)" key:@"precisionStroke"
+		value:settings.strokeWidth decimals:2] toStack:stack];
+	VSPushButton* activate = [[VSPushButton alloc]
+		initWithTitle:@"Attiva Precision Pen" prominent:YES target:self
+		action:@selector(applyPrecision:)];
+	[stack addArrangedSubview:activate];
+	[activate.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSPrecisionSet(&settings);
+	return stack;
+}
+
+- (void)applyPrecision:(id)sender
+{
+	VSPrecisionSettings settings = VSPrecisionDefaults();
+	settings.angleStep = self.transformFields[@"precisionAngle"].doubleValue;
+	settings.fixedLength = self.transformFields[@"precisionLength"].doubleValue;
+	settings.curveAmount = self.transformFields[@"precisionCurve"].doubleValue / 100.0;
+	settings.strokeWidth = self.transformFields[@"precisionStroke"].doubleValue;
+	settings = VSSanitizePrecision(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.angleStep forKey:[self transformPreferenceKey:@"precision" key:@"angleStep"]];
+	[defaults setDouble:settings.fixedLength forKey:[self transformPreferenceKey:@"precision" key:@"fixedLength"]];
+	[defaults setDouble:settings.curveAmount forKey:[self transformPreferenceKey:@"precision" key:@"curveAmount"]];
+	[defaults setDouble:settings.strokeWidth forKey:[self transformPreferenceKey:@"precision" key:@"strokeWidth"]];
+	VSPrecisionSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelPrecisionConfigure);
+}
+
+- (NSView*)fluidSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Disegno fluido")];
+	NSTextField* explanation = VSLabel(
+		@"Trascina per creare un tratto Bezier smussato. Campionamento e "
+		 @"smoothing vengono applicati durante l’anteprima.",
+		VSFontSmall(), VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSFluidSettings settings = VSFluidDefaults();
+	settings.smoothing = [self storedTransformValue:@"fluid" key:@"smoothing"
+		defaultValue:settings.smoothing];
+	settings.strokeWidth = [self storedTransformValue:@"fluid" key:@"strokeWidth"
+		defaultValue:settings.strokeWidth];
+	settings.sampleDistance = [self storedTransformValue:@"fluid" key:@"sampleDistance"
+		defaultValue:settings.sampleDistance];
+	settings.closePath = [self storedTransformFlag:@"fluid" key:@"closePath"
+		defaultValue:NO] ? 1 : 0;
+	settings = VSSanitizeFluid(settings);
+	[self addTransformRow:[self transformFieldRow:@"Smoothing (0–100)" key:@"fluidSmoothing"
+		value:settings.smoothing * 100 decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Spessore (pt)" key:@"fluidStroke"
+		value:settings.strokeWidth decimals:2] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Campionamento (pt)" key:@"fluidSample"
+		value:settings.sampleDistance decimals:2] toStack:stack];
+	VSCheckbox* close = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[close setButtonType:NSButtonTypeSwitch];
+	close.bordered = NO;
+	close.title = @"Chiudi il tracciato";
+	close.state = settings.closePath ? NSControlStateValueOn : NSControlStateValueOff;
+	close.translatesAutoresizingMaskIntoConstraints = NO;
+	self.fluidClosePath = close;
+	[stack addArrangedSubview:close];
+	VSPushButton* activate = [[VSPushButton alloc]
+		initWithTitle:@"Attiva Fluid Sketch" prominent:YES target:self
+		action:@selector(applyFluid:)];
+	[stack addArrangedSubview:activate];
+	[activate.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSFluidSet(&settings);
+	return stack;
+}
+
+- (void)applyFluid:(id)sender
+{
+	VSFluidSettings settings = VSFluidDefaults();
+	settings.smoothing = self.transformFields[@"fluidSmoothing"].doubleValue / 100.0;
+	settings.strokeWidth = self.transformFields[@"fluidStroke"].doubleValue;
+	settings.sampleDistance = self.transformFields[@"fluidSample"].doubleValue;
+	settings.closePath = self.fluidClosePath.state == NSControlStateValueOn ? 1 : 0;
+	settings = VSSanitizeFluid(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.smoothing forKey:[self transformPreferenceKey:@"fluid" key:@"smoothing"]];
+	[defaults setDouble:settings.strokeWidth forKey:[self transformPreferenceKey:@"fluid" key:@"strokeWidth"]];
+	[defaults setDouble:settings.sampleDistance forKey:[self transformPreferenceKey:@"fluid" key:@"sampleDistance"]];
+	[defaults setBool:settings.closePath forKey:[self transformPreferenceKey:@"fluid" key:@"closePath"]];
+	VSFluidSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelFluidConfigure);
+}
+
+- (NSView*)inkSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Pennino calligrafico")];
+	NSTextField* explanation = VSLabel(
+		@"Crea una sagoma vettoriale chiusa e piena. L’aspetto controlla "
+		 @"l’ellisse del pennino, l’angolo ne stabilisce l’inclinazione.",
+		VSFontSmall(), VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSInkSettings settings = VSInkDefaults();
+	settings.smoothing = [self storedTransformValue:@"ink" key:@"smoothing"
+		defaultValue:settings.smoothing];
+	settings.nibWidth = [self storedTransformValue:@"ink" key:@"nibWidth"
+		defaultValue:settings.nibWidth];
+	settings.nibAspect = [self storedTransformValue:@"ink" key:@"nibAspect"
+		defaultValue:settings.nibAspect];
+	settings.nibAngle = [self storedTransformValue:@"ink" key:@"nibAngle"
+		defaultValue:settings.nibAngle];
+	settings = VSSanitizeInk(settings);
+	[self addTransformRow:[self transformFieldRow:@"Smoothing (0–100)" key:@"inkSmoothing"
+		value:settings.smoothing * 100 decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Larghezza pennino (pt)" key:@"inkWidth"
+		value:settings.nibWidth decimals:2] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Aspetto (2–100%)" key:@"inkAspect"
+		value:settings.nibAspect * 100 decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Angolo pennino (°)" key:@"inkAngle"
+		value:settings.nibAngle decimals:1] toStack:stack];
+	VSPushButton* activate = [[VSPushButton alloc]
+		initWithTitle:@"Attiva Ink Studio" prominent:YES target:self
+		action:@selector(applyInk:)];
+	[stack addArrangedSubview:activate];
+	[activate.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSInkSet(&settings);
+	return stack;
+}
+
+- (void)applyInk:(id)sender
+{
+	VSInkSettings settings = VSInkDefaults();
+	settings.smoothing = self.transformFields[@"inkSmoothing"].doubleValue / 100.0;
+	settings.nibWidth = self.transformFields[@"inkWidth"].doubleValue;
+	settings.nibAspect = self.transformFields[@"inkAspect"].doubleValue / 100.0;
+	settings.nibAngle = self.transformFields[@"inkAngle"].doubleValue;
+	settings = VSSanitizeInk(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.smoothing forKey:[self transformPreferenceKey:@"ink" key:@"smoothing"]];
+	[defaults setDouble:settings.nibWidth forKey:[self transformPreferenceKey:@"ink" key:@"nibWidth"]];
+	[defaults setDouble:settings.nibAspect forKey:[self transformPreferenceKey:@"ink" key:@"nibAspect"]];
+	[defaults setDouble:settings.nibAngle forKey:[self transformPreferenceKey:@"ink" key:@"nibAngle"]];
+	VSInkSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelInkConfigure);
+}
+
+- (NSView*)textureSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Texture lineare")];
+	NSTextField* explanation = VSLabel(
+		@"Trascina un rettangolo sulla tavola per generare linee vettoriali "
+		 @"ritagliate ai suoi bordi.", VSFontSmall(), VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 2;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSTextureSettings settings = VSTextureDefaults();
+	settings.spacing = [self storedTransformValue:@"texture" key:@"spacing" defaultValue:settings.spacing];
+	settings.angle = [self storedTransformValue:@"texture" key:@"angle" defaultValue:settings.angle];
+	settings.strokeWidth = [self storedTransformValue:@"texture" key:@"strokeWidth" defaultValue:settings.strokeWidth];
+	settings.crosshatch = [self storedTransformFlag:@"texture" key:@"crosshatch" defaultValue:NO] ? 1 : 0;
+	settings = VSSanitizeTexture(settings);
+	[self addTransformRow:[self transformFieldRow:@"Spaziatura (pt)" key:@"textureSpacing"
+		value:settings.spacing decimals:2] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Angolo (°)" key:@"textureAngle"
+		value:settings.angle decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Spessore (pt)" key:@"textureStroke"
+		value:settings.strokeWidth decimals:2] toStack:stack];
+	VSCheckbox* cross = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[cross setButtonType:NSButtonTypeSwitch];
+	cross.bordered = NO;
+	cross.title = @"Tratteggio incrociato";
+	cross.state = settings.crosshatch ? NSControlStateValueOn : NSControlStateValueOff;
+	cross.translatesAutoresizingMaskIntoConstraints = NO;
+	self.textureCrosshatch = cross;
+	[stack addArrangedSubview:cross];
+	VSPushButton* activate = [[VSPushButton alloc] initWithTitle:@"Attiva Texture Lab"
+		prominent:YES target:self action:@selector(applyTexture:)];
+	[stack addArrangedSubview:activate];
+	[activate.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSTextureSet(&settings);
+	return stack;
+}
+
+- (void)applyTexture:(id)sender
+{
+	VSTextureSettings settings = VSTextureDefaults();
+	settings.spacing = self.transformFields[@"textureSpacing"].doubleValue;
+	settings.angle = self.transformFields[@"textureAngle"].doubleValue;
+	settings.strokeWidth = self.transformFields[@"textureStroke"].doubleValue;
+	settings.crosshatch = self.textureCrosshatch.state == NSControlStateValueOn ? 1 : 0;
+	settings = VSSanitizeTexture(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.spacing forKey:[self transformPreferenceKey:@"texture" key:@"spacing"]];
+	[defaults setDouble:settings.angle forKey:[self transformPreferenceKey:@"texture" key:@"angle"]];
+	[defaults setDouble:settings.strokeWidth forKey:[self transformPreferenceKey:@"texture" key:@"strokeWidth"]];
+	[defaults setBool:settings.crosshatch forKey:[self transformPreferenceKey:@"texture" key:@"crosshatch"]];
+	VSTextureSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelTextureConfigure);
+}
+
+- (NSView*)stippleSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Puntinatura vettoriale")];
+	NSTextField* explanation = VSLabel(
+		@"Trascina un rettangolo per creare punti pieni sfalsati e deterministici.",
+		VSFontSmall(), VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSStippleSettings settings = VSStippleDefaults();
+	settings.spacing = [self storedTransformValue:@"stipple" key:@"spacing" defaultValue:settings.spacing];
+	settings.radius = [self storedTransformValue:@"stipple" key:@"radius" defaultValue:settings.radius];
+	settings.variation = [self storedTransformValue:@"stipple" key:@"variation" defaultValue:settings.variation];
+	settings.maximumDots = (int)[self storedTransformValue:@"stipple" key:@"maximumDots" defaultValue:settings.maximumDots];
+	settings = VSSanitizeStipple(settings);
+	[self addTransformRow:[self transformFieldRow:@"Spaziatura (pt)" key:@"stippleSpacing"
+		value:settings.spacing decimals:2] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Raggio punto (pt)" key:@"stippleRadius"
+		value:settings.radius decimals:2] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Variazione (0–100)" key:@"stippleVariation"
+		value:settings.variation * 100 decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Numero massimo" key:@"stippleMaximum"
+		value:settings.maximumDots decimals:0] toStack:stack];
+	VSPushButton* activate = [[VSPushButton alloc] initWithTitle:@"Attiva Stipple Lab"
+		prominent:YES target:self action:@selector(applyStipple:)];
+	[stack addArrangedSubview:activate];
+	[activate.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSStippleSet(&settings);
+	return stack;
+}
+
+- (void)applyStipple:(id)sender
+{
+	VSStippleSettings settings = VSStippleDefaults();
+	settings.spacing = self.transformFields[@"stippleSpacing"].doubleValue;
+	settings.radius = self.transformFields[@"stippleRadius"].doubleValue;
+	settings.variation = self.transformFields[@"stippleVariation"].doubleValue / 100.0;
+	settings.maximumDots = self.transformFields[@"stippleMaximum"].intValue;
+	settings = VSSanitizeStipple(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.spacing forKey:[self transformPreferenceKey:@"stipple" key:@"spacing"]];
+	[defaults setDouble:settings.radius forKey:[self transformPreferenceKey:@"stipple" key:@"radius"]];
+	[defaults setDouble:settings.variation forKey:[self transformPreferenceKey:@"stipple" key:@"variation"]];
+	[defaults setInteger:settings.maximumDots forKey:[self transformPreferenceKey:@"stipple" key:@"maximumDots"]];
+	VSStippleSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelStippleConfigure);
+}
+
+- (NSView*)geometrySettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Costruzione geometrica")];
+	NSTextField* explanation = VSLabel(
+		@"Trascina dal centro al punto di costruzione. Scegli cerchio, "
+		 @"tangente, costruzione combinata o arco semicircolare.",
+		VSFontSmall(), VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSGeometrySettings settings = VSGeometryDefaults();
+	settings.mode = (int)[self storedTransformValue:@"geometry" key:@"mode" defaultValue:settings.mode];
+	settings.strokeWidth = [self storedTransformValue:@"geometry" key:@"strokeWidth" defaultValue:settings.strokeWidth];
+	settings = VSSanitizeGeometry(settings);
+	self.geometryMode = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Cerchio + tangente", @"Cerchio", @"Tangente", @"Arco"]
+			target:nil action:nil];
+	self.geometryMode.selectedSegment = settings.mode;
+	[stack addArrangedSubview:self.geometryMode];
+	[self.geometryMode.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	[self addTransformRow:[self transformFieldRow:@"Spessore (pt)" key:@"geometryStroke"
+		value:settings.strokeWidth decimals:2] toStack:stack];
+	VSPushButton* activate = [[VSPushButton alloc] initWithTitle:@"Attiva Geometry Lab"
+		prominent:YES target:self action:@selector(applyGeometry:)];
+	[stack addArrangedSubview:activate];
+	[activate.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSGeometrySet(&settings);
+	return stack;
+}
+
+- (void)applyGeometry:(id)sender
+{
+	VSGeometrySettings settings = VSGeometryDefaults();
+	settings.mode = (int)self.geometryMode.selectedSegment;
+	settings.strokeWidth = self.transformFields[@"geometryStroke"].doubleValue;
+	settings = VSSanitizeGeometry(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setInteger:settings.mode forKey:[self transformPreferenceKey:@"geometry" key:@"mode"]];
+	[defaults setDouble:settings.strokeWidth forKey:[self transformPreferenceKey:@"geometry" key:@"strokeWidth"]];
+	VSGeometrySet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelGeometryConfigure);
+}
+
+- (NSView*)shapeSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Riforma locale")];
+	NSTextField* explanation = VSLabel(
+		@"Trascina vicino agli ancoraggi selezionati. La deformazione decresce "
+		 @"in modo morbido entro il raggio indicato.", VSFontSmall(), VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSShapeSettings settings = VSShapeDefaults();
+	settings.radius = [self storedTransformValue:@"shape" key:@"radius" defaultValue:settings.radius];
+	settings.strength = [self storedTransformValue:@"shape" key:@"strength" defaultValue:settings.strength];
+	settings.preserveHandles = [self storedTransformFlag:@"shape" key:@"preserveHandles" defaultValue:YES] ? 1 : 0;
+	settings = VSSanitizeShape(settings);
+	[self addTransformRow:[self transformFieldRow:@"Raggio (pt)" key:@"shapeRadius"
+		value:settings.radius decimals:1] toStack:stack];
+	[self addTransformRow:[self transformFieldRow:@"Forza (0–200%)" key:@"shapeStrength"
+		value:settings.strength * 100 decimals:1] toStack:stack];
+	VSCheckbox* preserve = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[preserve setButtonType:NSButtonTypeSwitch];
+	preserve.bordered = NO;
+	preserve.title = @"Conserva le maniglie";
+	preserve.state = settings.preserveHandles ? NSControlStateValueOn : NSControlStateValueOff;
+	preserve.translatesAutoresizingMaskIntoConstraints = NO;
+	self.shapePreserveHandles = preserve;
+	[stack addArrangedSubview:preserve];
+	VSPushButton* activate = [[VSPushButton alloc] initWithTitle:@"Attiva Shape Reform"
+		prominent:YES target:self action:@selector(applyShape:)];
+	[stack addArrangedSubview:activate];
+	[activate.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSShapeSet(&settings);
+	return stack;
+}
+
+- (void)applyShape:(id)sender
+{
+	VSShapeSettings settings = VSShapeDefaults();
+	settings.radius = self.transformFields[@"shapeRadius"].doubleValue;
+	settings.strength = self.transformFields[@"shapeStrength"].doubleValue / 100.0;
+	settings.preserveHandles = self.shapePreserveHandles.state == NSControlStateValueOn ? 1 : 0;
+	settings = VSSanitizeShape(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.radius forKey:[self transformPreferenceKey:@"shape" key:@"radius"]];
+	[defaults setDouble:settings.strength forKey:[self transformPreferenceKey:@"shape" key:@"strength"]];
+	[defaults setBool:settings.preserveHandles forKey:[self transformPreferenceKey:@"shape" key:@"preserveHandles"]];
+	VSShapeSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelShapeConfigure);
+}
+
+#pragma mark Path Studio
+
+- (NSView*)pathSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Tracciati")];
+	NSTextField* explanation = VSLabel(
+		@"Semplifica, converte gli ancoraggi o inverte la direzione. "
+		 @"Le operazioni attraversano gruppi e tracciati composti.",
+		VSFontSmall(),
+		VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSPathSettings settings = VSPathDefaults();
+	settings.tolerance = [self storedTransformValue:@"path" key:@"tolerance"
+		defaultValue:settings.tolerance];
+	settings.preserveCurves = [self storedTransformFlag:@"path" key:@"preserveCurves"
+		defaultValue:YES] ? 1 : 0;
+	settings = VSSanitizePath(settings);
+	[self addTransformRow:[self transformFieldRow:@"Tolleranza (pt)"
+		key:@"pathTolerance" value:settings.tolerance decimals:2] toStack:stack];
+
+	VSCheckbox* preserve = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[preserve setButtonType:NSButtonTypeSwitch];
+	preserve.bordered = NO;
+	preserve.title = @"Proteggi ancoraggi curvi";
+	preserve.state = settings.preserveCurves ? NSControlStateValueOn : NSControlStateValueOff;
+	preserve.translatesAutoresizingMaskIntoConstraints = NO;
+	self.pathPreserveCurves = preserve;
+	[stack addArrangedSubview:preserve];
+
+	NSStackView* firstActions = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	firstActions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	firstActions.distribution = NSStackViewDistributionFillEqually;
+	firstActions.spacing = 7;
+	firstActions.translatesAutoresizingMaskIntoConstraints = NO;
+	[firstActions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Semplifica"
+		prominent:YES target:self action:@selector(pathSimplify:)]];
+	[firstActions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Inverti direzione"
+		prominent:NO target:self action:@selector(pathReverse:)]];
+	[stack addArrangedSubview:firstActions];
+	[firstActions.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	NSStackView* secondActions = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	secondActions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	secondActions.distribution = NSStackViewDistributionFillEqually;
+	secondActions.spacing = 7;
+	secondActions.translatesAutoresizingMaskIntoConstraints = NO;
+	[secondActions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Ancoraggi netti"
+		prominent:NO target:self action:@selector(pathCorner:)]];
+	[secondActions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Ancoraggi morbidi"
+		prominent:NO target:self action:@selector(pathSmooth:)]];
+	[stack addArrangedSubview:secondActions];
+	[secondActions.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSPathSet(&settings);
+	return stack;
+}
+
+- (void)runPathCommand:(int)command
+{
+	VSPathSettings settings = VSPathDefaults();
+	settings.tolerance = self.transformFields[@"pathTolerance"].doubleValue;
+	settings.preserveCurves = self.pathPreserveCurves.state == NSControlStateValueOn ? 1 : 0;
+	settings = VSSanitizePath(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.tolerance forKey:[self transformPreferenceKey:@"path" key:@"tolerance"]];
+	[defaults setBool:settings.preserveCurves forKey:[self transformPreferenceKey:@"path" key:@"preserveCurves"]];
+	VSPathSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, command);
+}
+
+- (void)pathSimplify:(id)sender { [self runPathCommand:kVSPanelPathSimplify]; }
+- (void)pathCorner:(id)sender { [self runPathCommand:kVSPanelPathCorner]; }
+- (void)pathSmooth:(id)sender { [self runPathCommand:kVSPanelPathSmooth]; }
+- (void)pathReverse:(id)sender { [self runPathCommand:kVSPanelPathReverse]; }
+
+#pragma mark Raster Lab
+
+- (NSView*)rasterSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Immagini")];
+	NSTextField* explanation = VSLabel(
+		@"Lavora sulle immagini selezionate. Il ricampionamento crea una copia "
+		 @"e conserva l’originale; Incorpora converte i collegamenti in contenuto nativo.",
+		VSFontSmall(),
+		VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 4;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSRasterSettings settings = VSRasterDefaults();
+	settings.resolution = [self storedTransformValue:@"raster" key:@"resolution"
+		defaultValue:settings.resolution];
+	settings.resampling = (int)[self storedTransformValue:@"raster" key:@"resampling"
+		defaultValue:settings.resampling];
+	settings = VSSanitizeRaster(settings);
+	[self addTransformRow:[self transformFieldRow:@"Risoluzione (ppi)"
+		key:@"rasterResolution" value:settings.resolution decimals:0] toStack:stack];
+	self.rasterResampling = [[VSSegmentedControl alloc]
+		initWithLabels:@[@"Rapido", @"Media", @"Bicubica"] target:nil action:nil];
+	self.rasterResampling.selectedSegment = settings.resampling;
+	[stack addArrangedSubview:self.rasterResampling];
+	[self.rasterResampling.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	NSStackView* firstActions = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	firstActions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	firstActions.distribution = NSStackViewDistributionFillEqually;
+	firstActions.spacing = 7;
+	firstActions.translatesAutoresizingMaskIntoConstraints = NO;
+	[firstActions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Seleziona immagini"
+		prominent:NO target:self action:@selector(rasterSelect:)]];
+	[firstActions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Incorpora"
+		prominent:NO target:self action:@selector(rasterEmbed:)]];
+	[stack addArrangedSubview:firstActions];
+	[firstActions.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	NSStackView* secondActions = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	secondActions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	secondActions.distribution = NSStackViewDistributionFillEqually;
+	secondActions.spacing = 7;
+	secondActions.translatesAutoresizingMaskIntoConstraints = NO;
+	[secondActions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Imposta metadato"
+		prominent:NO target:self action:@selector(rasterSetResolution:)]];
+	[secondActions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Crea copia"
+		prominent:YES target:self action:@selector(rasterResample:)]];
+	[stack addArrangedSubview:secondActions];
+	[secondActions.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSRasterSet(&settings);
+	return stack;
+}
+
+- (VSRasterSettings)currentRasterSettings
+{
+	VSRasterSettings settings = VSRasterDefaults();
+	settings.resolution = self.transformFields[@"rasterResolution"].doubleValue;
+	settings.resampling = (int)self.rasterResampling.selectedSegment;
+	settings = VSSanitizeRaster(settings);
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setDouble:settings.resolution forKey:[self transformPreferenceKey:@"raster" key:@"resolution"]];
+	[defaults setInteger:settings.resampling forKey:[self transformPreferenceKey:@"raster" key:@"resampling"]];
+	VSRasterSet(&settings);
+	return settings;
+}
+
+- (void)runRasterCommand:(int)command
+{
+	(void)[self currentRasterSettings];
+	if (self.activateTool) self.activateTool(self.callbackContext, command);
+}
+
+- (void)rasterSelect:(id)sender { [self runRasterCommand:kVSPanelRasterSelect]; }
+- (void)rasterEmbed:(id)sender { [self runRasterCommand:kVSPanelRasterEmbed]; }
+- (void)rasterResample:(id)sender { [self runRasterCommand:kVSPanelRasterResample]; }
+- (void)rasterSetResolution:(id)sender { [self runRasterCommand:kVSPanelRasterSetResolution]; }
+
+#pragma mark Auto Save
+
+- (NSView*)autoSaveSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Salvataggio automatico")];
+	NSTextField* explanation = VSLabel(
+		@"Salva il documento aperto all’intervallo scelto. Per i documenti "
+		 @"senza nome il salvataggio automatico attende il primo Salva ora.",
+		VSFontSmall(),
+		VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSAutoSaveSettings settings = VSAutoSaveGet();
+	settings = VSSanitizeAutoSave(settings);
+	VSCheckbox* enabled = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[enabled setButtonType:NSButtonTypeSwitch];
+	enabled.bordered = NO;
+	enabled.title = @"Attiva Auto Save";
+	enabled.state = settings.enabled ? NSControlStateValueOn : NSControlStateValueOff;
+	enabled.translatesAutoresizingMaskIntoConstraints = NO;
+	self.autoSaveEnabled = enabled;
+	[stack addArrangedSubview:enabled];
+
+	[self addTransformRow:[self transformFieldRow:@"Intervallo (1–120 min)"
+		key:@"intervalMinutes" value:settings.intervalMinutes decimals:0] toStack:stack];
+
+	VSCheckbox* modified = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[modified setButtonType:NSButtonTypeSwitch];
+	modified.bordered = NO;
+	modified.title = @"Solo se il documento è modificato";
+	modified.state = settings.modifiedOnly ? NSControlStateValueOn : NSControlStateValueOff;
+	modified.translatesAutoresizingMaskIntoConstraints = NO;
+	self.autoSaveModifiedOnly = modified;
+	[stack addArrangedSubview:modified];
+
+	VSCheckbox* versions = [[VSCheckbox alloc] initWithFrame:NSZeroRect];
+	[versions setButtonType:NSButtonTypeSwitch];
+	versions.bordered = NO;
+	versions.title = @"Crea una copia in “Vector Suite Backups”";
+	versions.state = settings.createVersionCopy ? NSControlStateValueOn : NSControlStateValueOff;
+	versions.translatesAutoresizingMaskIntoConstraints = NO;
+	self.autoSaveVersions = versions;
+	[stack addArrangedSubview:versions];
+
+	NSStackView* actions = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	actions.distribution = NSStackViewDistributionFillEqually;
+	actions.spacing = 7;
+	actions.translatesAutoresizingMaskIntoConstraints = NO;
+	[actions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Salva ora"
+		prominent:NO target:self action:@selector(autoSaveNow:)]];
+	[actions addArrangedSubview:[[VSPushButton alloc] initWithTitle:@"Applica"
+		prominent:YES target:self action:@selector(applyAutoSave:)]];
+	[stack addArrangedSubview:actions];
+	[actions.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	return stack;
+}
+
+- (VSAutoSaveSettings)currentAutoSaveSettings
+{
+	VSAutoSaveSettings settings = VSAutoSaveDefaults();
+	settings.enabled = self.autoSaveEnabled.state == NSControlStateValueOn ? 1 : 0;
+	settings.intervalMinutes = self.transformFields[@"intervalMinutes"].intValue;
+	settings.modifiedOnly = self.autoSaveModifiedOnly.state == NSControlStateValueOn ? 1 : 0;
+	settings.createVersionCopy = self.autoSaveVersions.state == NSControlStateValueOn ? 1 : 0;
+	return VSSanitizeAutoSave(settings);
+}
+
+- (void)applyAutoSave:(id)sender
+{
+	VSAutoSaveSettings settings = [self currentAutoSaveSettings];
+	NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+	[defaults setBool:settings.enabled forKey:@"studio.vectorsuite.autoSave.enabled"];
+	[defaults setInteger:settings.intervalMinutes forKey:@"studio.vectorsuite.autoSave.intervalMinutes"];
+	[defaults setBool:settings.modifiedOnly forKey:@"studio.vectorsuite.autoSave.modifiedOnly"];
+	[defaults setBool:settings.createVersionCopy forKey:@"studio.vectorsuite.autoSave.createVersionCopy"];
+	VSAutoSaveSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelAutoSaveConfigure);
+}
+
+- (void)autoSaveNow:(id)sender
+{
+	VSAutoSaveSettings settings = [self currentAutoSaveSettings];
+	VSAutoSaveSet(&settings);
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelAutoSaveNow);
+}
+
+#pragma mark Smart Find
+
+- (NSView*)smartFindSettingsView
+{
+	NSStackView* stack = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+	stack.alignment = NSLayoutAttributeLeading;
+	stack.spacing = 7;
+	stack.edgeInsets = NSEdgeInsetsMake(12, 12, 14, 12);
+	stack.translatesAutoresizingMaskIntoConstraints = NO;
+
+	[stack addArrangedSubview:VSEyebrow(@"Trova nel documento")];
+	NSTextField* explanation = VSLabel(
+		@"Usa il primo tracciato selezionato come riferimento. Gli oggetti "
+		@"bloccati o nascosti non vengono modificati.",
+		VSFontSmall(),
+		VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	NSStackView* primary = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	primary.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+	primary.distribution = NSStackViewDistributionFillEqually;
+	primary.spacing = 7;
+	primary.translatesAutoresizingMaskIntoConstraints = NO;
+	[primary addArrangedSubview:
+		[[VSPushButton alloc] initWithTitle:@"Aspetto"
+							 prominent:YES
+								target:self
+								action:@selector(smartFindAppearance:)]];
+	[primary addArrangedSubview:
+		[[VSPushButton alloc] initWithTitle:@"Geometria"
+							 prominent:NO
+								target:self
+								action:@selector(smartFindGeometry:)]];
+	[stack addArrangedSubview:primary];
+	[primary.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSPushButton* exact = [[VSPushButton alloc] initWithTitle:@"Aspetto + geometria"
+										prominent:NO
+									   target:self
+									   action:@selector(smartFindExact:)];
+	[stack addArrangedSubview:exact];
+	[exact.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	[stack addArrangedSubview:VSEyebrow(@"Sostituisci")];
+	NSTextField* replaceHint = VSLabel(
+		@"Applica lo stile corrente di Illustrator ai tracciati selezionati.",
+		VSFontSmall(),
+		VSQuiet());
+	replaceHint.lineBreakMode = NSLineBreakByWordWrapping;
+	[stack addArrangedSubview:replaceHint];
+	[replaceHint.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+
+	VSPushButton* applyStyle = [[VSPushButton alloc]
+		initWithTitle:@"Applica stile corrente"
+			 prominent:NO
+				target:self
+				action:@selector(smartFindApplyStyle:)];
+	[stack addArrangedSubview:applyStyle];
+	[applyStyle.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	return stack;
+}
+
+- (void)runSmartFindCommand:(int)command
+{
+	if (self.activateTool) self.activateTool(self.callbackContext, command);
+}
+
+- (void)smartFindAppearance:(id)sender
+{
+	[self runSmartFindCommand:kVSPanelSmartFindAppearance];
+}
+
+- (void)smartFindGeometry:(id)sender
+{
+	[self runSmartFindCommand:kVSPanelSmartFindGeometry];
+}
+
+- (void)smartFindExact:(id)sender
+{
+	[self runSmartFindCommand:kVSPanelSmartFindExact];
+}
+
+- (void)smartFindApplyStyle:(id)sender
+{
+	[self runSmartFindCommand:kVSPanelSmartFindApplyStyle];
+}
+
 #pragma mark Griglia dei moduli
+
+- (NSView*)suiteCoreSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Stato della suite")];
+	for (NSString* line in @[
+		@"22 moduli registrati nel pannello nativo",
+		@"Interfaccia monocromatica adattiva chiaro/scuro",
+		@"Comandi con undo e preferenze locali senza dati personali",
+		@"Bundle compatibile Apple Silicon e Intel"
+	]) {
+		NSTextField* label = VSLabel(line, VSFontBody(), VSInk());
+		label.lineBreakMode = NSLineBreakByWordWrapping;
+		[stack addArrangedSubview:label];
+		[label.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	}
+	return stack;
+}
+
+- (NSView*)directSettingsView
+{
+	NSStackView* stack = [self transformSettingsStack];
+	[stack addArrangedSubview:VSEyebrow(@"Snap Vector Suite")];
+	const VSSnap::Settings settings=VSSnapGet();
+	NSArray<NSString*>* names=@[@"Attiva snap aggiuntivi", @"Estremi e ancoraggi", @"Punti medi", @"Intersezioni (segmenti retti)", @"Punto più vicino", @"Perpendicolare", @"Centro geometrico", @"Estremi X/Y delle curve", @"Tangente"];
+	const unsigned modes[]={0,VSSnap::Endpoint,VSSnap::Midpoint,VSSnap::Intersection,VSSnap::Nearest,VSSnap::Perpendicular,VSSnap::Center,VSSnap::Quadrant,VSSnap::Tangent};
+	for (NSUInteger i=0;i<names.count;++i) {
+		VSCheckbox* check=[[VSCheckbox alloc] initWithFrame:NSZeroRect];
+		[check setButtonType:NSButtonTypeSwitch];
+		check.bordered=NO;check.title=names[i];check.tag=modes[i];
+		check.state=(i==0?settings.enabled:(settings.modes&modes[i])!=0)?NSControlStateValueOn:NSControlStateValueOff;
+		check.target=self;check.action=@selector(snapSettingChanged:);
+		check.translatesAutoresizingMaskIntoConstraints=NO;
+		[stack addArrangedSubview:check];
+	}
+	NSTextField* snapHint=VSLabel(@"Negli strumenti Vector Suite. Tangente e perpendicolare usano il punto iniziale. Shift mantiene le direzioni a 45°.",VSFontSmall(),VSQuiet());
+	snapHint.lineBreakMode=NSLineBreakByWordWrapping;
+	[stack addArrangedSubview:snapHint];
+	[snapHint.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active=YES;
+	[stack addArrangedSubview:VSLabel(@"Tolleranza (1–32 px)",VSFontSmall(),VSQuiet())];
+	VSNumericField* tolerance=[[VSNumericField alloc] initWithFrame:NSZeroRect];
+	tolerance.doubleValue=settings.pixels;tolerance.tag=100;
+	tolerance.target=self;tolerance.action=@selector(snapSettingChanged:);
+	tolerance.translatesAutoresizingMaskIntoConstraints=NO;
+	[stack addArrangedSubview:tolerance];
+	[tolerance.widthAnchor constraintEqualToConstant:80].active=YES;
+	[stack addArrangedSubview:VSEyebrow(@"Snap di Illustrator")];
+	NSTextField* snapping = VSLabel(
+		@"Configura le Guide sensibili nelle preferenze globali di Illustrator. "
+		 @"Per la tangente usa Penna o Linea e abilita le Guide geometriche.",
+		VSFontSmall(), VSQuiet());
+	snapping.lineBreakMode = NSLineBreakByWordWrapping;
+	[stack addArrangedSubview:snapping];
+	[snapping.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSPushButton* snapPreferences = [[VSPushButton alloc]
+		initWithTitle:@"Configura snap di Illustrator…" prominent:NO target:self
+		action:@selector(openNativeSnapPreferences:)];
+	[stack addArrangedSubview:snapPreferences];
+	[snapPreferences.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	[stack addArrangedSubview:VSEyebrow(@"Pannello")];
+	NSTextField* explanation = VSLabel(
+		@"Il tema segue automaticamente Illustrator e macOS. Control + trascina "
+		 @"una scheda per modificare l’ordine dei moduli.", VSFontSmall(), VSQuiet());
+	explanation.lineBreakMode = NSLineBreakByWordWrapping;
+	explanation.maximumNumberOfLines = 3;
+	[stack addArrangedSubview:explanation];
+	[explanation.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	VSPushButton* reset = [[VSPushButton alloc]
+		initWithTitle:@"Ripristina ordine moduli" prominent:NO target:self
+		action:@selector(resetModuleOrder:)];
+	[stack addArrangedSubview:reset];
+	[reset.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
+	return stack;
+}
+
+- (void)resetModuleOrder:(id)sender
+{
+	[self.moduleOrder removeAllObjects];
+	for (NSInteger moduleID = 0; moduleID < kVSModuleCount; ++moduleID) {
+		[self.moduleOrder addObject:@(moduleID)];
+	}
+	[NSUserDefaults.standardUserDefaults setObject:self.moduleOrder
+		forKey:@"studio.vectorsuite.panel.moduleOrder"];
+	[self rebuildModules];
+}
+
+- (void)openNativeSnapPreferences:(id)sender
+{
+	if (self.activateTool) self.activateTool(self.callbackContext, kVSPanelNativeSnapPreferences);
+}
+
+- (void)snapSettingChanged:(NSControl*)sender
+{
+	VSSnap::Settings settings=VSSnapGet();
+	if (sender.tag==100) settings.pixels=sender.doubleValue;
+	else if(sender.tag==0) settings.enabled=[(NSButton*)sender state]==NSControlStateValueOn;
+	else if ([(NSButton*)sender state]==NSControlStateValueOn) settings.modes|=(unsigned)sender.tag;
+	else settings.modes&=~(unsigned)sender.tag;
+	VSSnapSet(&settings);settings=VSSnapGet();
+	if(sender.tag==100)sender.doubleValue=settings.pixels;
+	NSUserDefaults* defaults=NSUserDefaults.standardUserDefaults;
+	[defaults setBool:settings.enabled forKey:@"studio.vectorsuite.snap.enabled"];
+	[defaults setInteger:settings.modes forKey:@"studio.vectorsuite.snap.modes"];
+	[defaults setDouble:settings.pixels forKey:@"studio.vectorsuite.snap.pixels"];
+}
 
 - (VSModuleCardButton*)moduleCardForModule:(const VSModuleDefinition&)module
 {
@@ -1229,6 +3369,8 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 	button.moduleID = module.id;
 	button.moduleName = [NSString stringWithUTF8String:module.name];
 	button.moduleSummary = [NSString stringWithUTF8String:module.summary];
+	button.accessibilityLabel = button.moduleName;
+	button.accessibilityHelp = button.moduleSummary;
 	button.moduleImage = [self glyphForModule:module
 										 side:kVSTileSide - 10.0
 										color:VSPaper()];
@@ -1298,6 +3440,226 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 		[row.heightAnchor constraintEqualToConstant:kVSCardHeight].active = YES;
 	}
 
+	if (self.selectedModule == kVSProjectionStudio &&
+		[visibleModules containsObject:@(kVSProjectionStudio)]) {
+		NSView* settings = [self projectionSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+											 constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSSuiteCore &&
+		[visibleModules containsObject:@(kVSSuiteCore)]) {
+		NSView* settings = [self suiteCoreSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSDirectSettings &&
+		[visibleModules containsObject:@(kVSDirectSettings)]) {
+		NSView* settings = [self directSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSSmartFind &&
+		[visibleModules containsObject:@(kVSSmartFind)]) {
+		NSView* settings = [self smartFindSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+											 constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSCollisionAlign &&
+		[visibleModules containsObject:@(kVSCollisionAlign)]) {
+		NSView* settings = [self collisionSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSMirrorStudio &&
+		[visibleModules containsObject:@(kVSMirrorStudio)]) {
+		NSView* settings = [self mirrorSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSRandomize &&
+		[visibleModules containsObject:@(kVSRandomize)]) {
+		NSView* settings = [self randomizeSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSWidthStudio &&
+		[visibleModules containsObject:@(kVSWidthStudio)]) {
+		NSView* settings = [self widthSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSLiveStyle &&
+		[visibleModules containsObject:@(kVSLiveStyle)]) {
+		NSView* settings = [self liveStyleSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSColorLab &&
+		[visibleModules containsObject:@(kVSColorLab)]) {
+		NSView* settings = [self colorSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSAutoSave &&
+		[visibleModules containsObject:@(kVSAutoSave)]) {
+		NSView* settings = [self autoSaveSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSRasterLab &&
+		[visibleModules containsObject:@(kVSRasterLab)]) {
+		NSView* settings = [self rasterSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSPathStudio &&
+		[visibleModules containsObject:@(kVSPathStudio)]) {
+		NSView* settings = [self pathSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSPrecisionPen &&
+		[visibleModules containsObject:@(kVSPrecisionPen)]) {
+		NSView* settings = [self precisionSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSFluidSketch &&
+		[visibleModules containsObject:@(kVSFluidSketch)]) {
+		NSView* settings = [self fluidSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSInkStudio &&
+		[visibleModules containsObject:@(kVSInkStudio)]) {
+		NSView* settings = [self inkSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSTextureLab &&
+		[visibleModules containsObject:@(kVSTextureLab)]) {
+		NSView* settings = [self textureSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSStippleLab &&
+		[visibleModules containsObject:@(kVSStippleLab)]) {
+		NSView* settings = [self stippleSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSGeometryLab &&
+		[visibleModules containsObject:@(kVSGeometryLab)]) {
+		NSView* settings = [self geometrySettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
+	if (self.selectedModule == kVSShapeReform &&
+		[visibleModules containsObject:@(kVSShapeReform)]) {
+		NSView* settings = [self shapeSettingsView];
+		[self.moduleStack addArrangedSubview:settings];
+		[settings.widthAnchor constraintEqualToAnchor:self.moduleStack.widthAnchor
+			constant:-2 * kVSGutter].active = YES;
+		[settings layoutSubtreeIfNeeded];
+		[settings.heightAnchor constraintEqualToConstant:
+			MAX(1.0, settings.fittingSize.height)].active = YES;
+	}
+
 	if (self.selectedModule == kVSFractalGrove &&
 		[visibleModules containsObject:@(kVSFractalGrove)]) {
 		NSView* settings = [self fractalSettingsView];
@@ -1307,6 +3669,22 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 		[settings layoutSubtreeIfNeeded];
 		CGFloat settingsHeight = MAX(1.0, settings.fittingSize.height);
 		[settings.heightAnchor constraintEqualToConstant:settingsHeight].active = YES;
+	}
+
+	// Le impostazioni venivano aggiunte dopo tutte le righe della libreria:
+	// per questo, premendo una scheda in alto, sembravano aprirsi in fondo alla
+	// pagina. C'è una sola vista impostazioni attiva; la spostiamo subito dopo
+	// la riga che contiene la scheda selezionata.
+	NSUInteger selectedVisibleIndex = [visibleModules indexOfObject:@(self.selectedModule)];
+	const NSUInteger moduleRowCount = (visibleModules.count + 1) / 2;
+	if (selectedVisibleIndex != NSNotFound &&
+		self.moduleStack.arrangedSubviews.count > moduleRowCount) {
+		NSView* settings = self.moduleStack.arrangedSubviews.lastObject;
+		const NSUInteger insertionIndex = MIN(
+			selectedVisibleIndex / 2 + 1,
+			moduleRowCount);
+		[self.moduleStack removeArrangedSubview:settings];
+		[self.moduleStack insertArrangedSubview:settings atIndex:insertionIndex];
 	}
 }
 
@@ -1338,8 +3716,18 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 	NSInteger moduleID = sender.tag;
 	self.selectedModule = moduleID;
 	[self rebuildModules];
+	NSButton* selectedButton = self.moduleButtons[@(moduleID)];
+	if (selectedButton) {
+		[self.moduleStack layoutSubtreeIfNeeded];
+		[selectedButton scrollRectToVisible:selectedButton.bounds];
+	}
 	if (self.activateTool) {
-		self.activateTool(self.callbackContext, (int)moduleID);
+		int callbackID = (int)moduleID;
+		if (moduleID == kVSProjectionStudio) {
+			callbackID = kVSPanelProjectionToolBase +
+				(int)[self projectionToolSelection];
+		}
+		self.activateTool(self.callbackContext, callbackID);
 	}
 }
 
@@ -1350,7 +3738,15 @@ static void VSDrawMark(NSRect box, NSColor* foreground, NSColor* background)
 
 - (void)controlTextDidChange:(NSNotification*)notification
 {
-	[self rebuildModules];
+	if (notification.object == self.searchField) [self rebuildModules];
+}
+
+- (void)controlTextDidEndEditing:(NSNotification*)notification
+{
+	if (notification.object == self.transformFields[@"copies"] ||
+		notification.object == self.transformFields[@"axisOffset"]) {
+		[self mirrorSettingsChanged:notification.object];
+	}
 }
 
 - (void)selectModule:(NSInteger)moduleID
@@ -1385,6 +3781,14 @@ void* VSCreatePanelController(
 {
 	NSView* hostView = (__bridge NSView*)parentView;
 	if (!hostView) return nullptr;
+	NSUserDefaults* snapDefaults=NSUserDefaults.standardUserDefaults;
+	VSSnap::Settings snapSettings;
+	snapSettings.enabled=[snapDefaults boolForKey:@"studio.vectorsuite.snap.enabled"];
+	if([snapDefaults objectForKey:@"studio.vectorsuite.snap.modes"])
+		snapSettings.modes=(unsigned)[snapDefaults integerForKey:@"studio.vectorsuite.snap.modes"];
+	if([snapDefaults objectForKey:@"studio.vectorsuite.snap.pixels"])
+		snapSettings.pixels=[snapDefaults doubleForKey:@"studio.vectorsuite.snap.pixels"];
+	VSSnapSet(&snapSettings);
 
 	VSPanelController* controller = [[VSPanelController alloc]
 		initWithHostView:hostView
