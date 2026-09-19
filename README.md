@@ -1,7 +1,7 @@
 # Vector Suite
 
 22 moduli per Adobe Illustrator 2026: disegno, geometria, assonometrie,
-alberi frattali e gestione degli oggetti. Un pannello, interfaccia monocromatica.
+alberi frattali e gestione degli oggetti in un pannello unico.
 
 Il progetto è in sviluppo: le funzioni non sono ancora equivalenti a quelle
 dei plug-in di riferimento. I limiti sono elencati in
@@ -46,9 +46,3 @@ L'SDK e i plug-in di riferimento non sono inclusi.
 Mac: Xcode, Python 3 e Node.js; esegui `sh scripts/build-macos.sh`.
 Il DMG viene creato in `build/`.
 
-Test senza SDK: `sh tests/run-native-unit-tests.sh`.
-Verifica del pacchetto Mac: `sh scripts/verify.sh`.
-I test automatici non sostituiscono le prove dentro Illustrator.
-
-Il workflow di rilascio richiede il segreto `AI_SDK_URL` e prepara una bozza,
-da pubblicare dopo la verifica su macOS.
